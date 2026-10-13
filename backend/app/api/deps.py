@@ -8,6 +8,7 @@ import jwt
 from ..core.config import settings
 from ..core.database import get_db
 from ..core.exceptions import SanctuaryException
+from ..core.security import decode_access_token
 from ..models.domain.user import User
 
 security_bearer = HTTPBearer(auto_error=False)
@@ -25,21 +26,17 @@ async def get_current_user(
         )
 
     token = credentials.credentials
-    try:
-        payload = jwt.decode(
-            token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM],
+    payload = decode_access_token(token)
+    if not payload or not payload.get("sub"):
+        raise SanctuaryException(
+            error_code="INVALID_TOKEN",
+            message="Bearer session invalid or expired.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
         )
-        user_id_str = payload.get("sub")
-        if not user_id_str:
-            raise SanctuaryException(
-                error_code="INVALID_TOKEN",
-                message="Bearer session invalid or expired.",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
-        user_id = UUID(user_id_str)
-    except (jwt.PyJWTError, ValueError):
+
+    try:
+        user_id = UUID(payload["sub"])
+    except (ValueError, TypeError):
         raise SanctuaryException(
             error_code="INVALID_TOKEN",
             message="Bearer session invalid or expired.",
