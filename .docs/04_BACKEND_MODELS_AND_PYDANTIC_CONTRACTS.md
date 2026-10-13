@@ -230,7 +230,7 @@ class User(Base, TimestampMixin):
     swipes_remaining: Mapped[int] = mapped_column(SmallInteger, default=25, nullable=False)
     direct_letters_count: Mapped[int] = mapped_column(SmallInteger, default=1, nullable=False)
     last_installation_uuid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    referral_code: Mapped[str] = mapped_column(String(16), unique=True, nullable=False)
+    referral_code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     kyc_status: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_incognito: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_photo_veiled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -262,6 +262,7 @@ class User(Base, TimestampMixin):
         CheckConstraint("role IN ('user', 'moderator', 'superadmin')", name="chk_role"),
         CheckConstraint("preferred_age_min >= 18", name="chk_min_age"),
         CheckConstraint("preferred_age_max <= 100", name="chk_max_age"),
+        CheckConstraint("preferred_age_min <= preferred_age_max", name="chk_preferred_age_range"),
     )
 
 MD
@@ -298,6 +299,7 @@ class Match(Base):
     __table_args__ = (
         UniqueConstraint("user1_id", "user2_id", name="uq_match_pair"),
         CheckConstraint("user1_id <> user2_id", name="chk_no_self_match"),
+        CheckConstraint("user1_id < user2_id", name="chk_ordered_match_pair"),
     )
 
 class Message(Base):

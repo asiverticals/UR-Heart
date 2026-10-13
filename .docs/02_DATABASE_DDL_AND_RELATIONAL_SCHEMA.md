@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS public.users (
     swipes_remaining INT2 NOT NULL DEFAULT 25,
     direct_letters_count INT2 NOT NULL DEFAULT 1,
     last_installation_uuid VARCHAR(64),
-    referral_code VARCHAR(16) UNIQUE NOT NULL DEFAULT ('SANCTUARY-' || UPPER(SUBSTRING(gen_random_uuid()::TEXT, 1, 6))),
+    referral_code VARCHAR(32) UNIQUE NOT NULL DEFAULT ('SANCTUARY-' || UPPER(SUBSTRING(REPLACE(gen_random_uuid()::TEXT, '-', ''), 1, 12))),
     kyc_status BOOLEAN NOT NULL DEFAULT FALSE,
     is_incognito BOOLEAN NOT NULL DEFAULT FALSE,
     is_photo_veiled BOOLEAN NOT NULL DEFAULT FALSE,
@@ -98,7 +98,8 @@ CREATE TABLE IF NOT EXISTS public.users (
     role VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'moderator', 'superadmin')),
     deleted_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_users_preferred_age_range CHECK (preferred_age_min <= preferred_age_max)
 );
 
 -- Compound Indexes for Feed Filtering & Boost Scoring
@@ -158,6 +159,7 @@ CREATE TABLE IF NOT EXISTS public.matches (
 
 CREATE INDEX IF NOT EXISTS idx_matches_user1 ON public.matches(user1_id) WHERE is_active = TRUE;
 CREATE INDEX IF NOT EXISTS idx_matches_user2 ON public.matches(user2_id) WHERE is_active = TRUE;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_matches_unordered_pair ON public.matches (LEAST(user1_id, user2_id), GREATEST(user1_id, user2_id));
 
 MD
 
@@ -182,6 +184,36 @@ CREATE TABLE IF NOT EXISTS public.messages (
 CREATE INDEX IF NOT EXISTS idx_messages_match_chronological ON public.messages(match_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_purge ON public.messages(created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_messages_client_id ON public.messages(match_id, sender_id, client_id) WHERE client_id IS NOT NULL;
+
+-- Trigger: Require message sender to be a participant in the referenced match
+CREATE OR REPLACE FUNCTION public.check_message_sender_is_participant()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM public.matches
+        WHERE id = NEW.match_id
+          AND (user1_id = NEW.sender_id OR user2_id = NEW.sender_id)
+    ) THEN
+        RAISE EXCEPTION 'Sender % is not a participant in match %', NEW.sender_id, NEW.match_id;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger WHERE tgname = 'trg_check_message_sender'
+    ) THEN
+        CREATE TRIGGER trg_check_message_sender
+        BEFORE INSERT OR UPDATE ON public.messages
+        FOR EACH ROW EXECUTE FUNCTION public.check_message_sender_is_participant();
+    END IF;
+END $$;
 
 MD
 
