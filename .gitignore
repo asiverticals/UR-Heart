@@ -10,8 +10,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+
 parts/
 sdist/
 var/
@@ -47,3 +46,11 @@ htmlcov/
 *.swo
 .DS_Store
 Thumbs.db
+*.iml
+
+# Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+
