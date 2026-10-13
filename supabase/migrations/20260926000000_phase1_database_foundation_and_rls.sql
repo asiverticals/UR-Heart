@@ -582,3 +582,687 @@ CREATE TABLE IF NOT EXISTS public.admin_audit_logs (
 CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON public.admin_audit_logs(created_at DESC);
 ALTER TABLE public.admin_audit_logs ENABLE ROW LEVEL SECURITY;
 
+-- ============================================================================
+-- CHUNK 1.4: DATABASE SECURITY FUNCTIONS, RLS POLICIES, TRIGGERS & VIEWS
+-- ============================================================================
+
+-- ============================================================================
+-- 1. CORE SECURITY HELPER FUNCTIONS
+-- ============================================================================
+
+-- 1. Resolve Current Authenticated User ID
+CREATE OR REPLACE FUNCTION public.get_current_user_id()
+RETURNS UUID
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+    SELECT id 
+    FROM public.users 
+    WHERE auth_id = auth.uid() 
+      AND deleted_at IS NULL 
+    LIMIT 1;
+$$;
+
+-- 2. Verify Active Match Participation
+CREATE OR REPLACE FUNCTION public.is_active_match_participant(p_match_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+    SELECT EXISTS (
+        SELECT 1 
+        FROM public.matches m
+        JOIN public.users u ON u.auth_id = auth.uid() AND u.deleted_at IS NULL
+        WHERE m.id = p_match_id
+          AND m.is_active = TRUE
+          AND (m.user1_id = u.id OR m.user2_id = u.id)
+    );
+$$;
+
+-- 3. Verify Bilateral Block Barrier
+CREATE OR REPLACE FUNCTION public.is_user_blocked(p_target_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+    SELECT EXISTS (
+        SELECT 1 
+        FROM public.blocked_users b
+        JOIN public.users u ON u.auth_id = auth.uid()
+        WHERE (b.blocker_id = u.id AND b.blocked_id = p_target_id)
+           OR (b.blocker_id = p_target_id AND b.blocked_id = u.id)
+    );
+$$;
+
+-- 4. Verify Superadmin Privileges
+CREATE OR REPLACE FUNCTION public.is_superadmin()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+    SELECT EXISTS (
+        SELECT 1 
+        FROM public.users 
+        WHERE auth_id = auth.uid() 
+          AND role = 'superadmin' 
+          AND deleted_at IS NULL
+    );
+$$;
+
+-- ============================================================================
+-- 2. COMPLETE RLS POLICIES (ALL 24 TABLES)
+-- ============================================================================
+
+-- Tier 1: Core Identity & Kinship Engine
+DO $$
+BEGIN
+    -- Table 1: public.users
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'users' AND policyname = 'users_select_owner') THEN
+        CREATE POLICY "users_select_owner" ON public.users FOR SELECT TO authenticated USING (auth_id = auth.uid() AND deleted_at IS NULL);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'users' AND policyname = 'users_insert_owner') THEN
+        CREATE POLICY "users_insert_owner" ON public.users FOR INSERT TO authenticated WITH CHECK (auth_id = auth.uid());
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'users' AND policyname = 'users_update_owner') THEN
+        CREATE POLICY "users_update_owner" ON public.users FOR UPDATE TO authenticated USING (auth_id = auth.uid() AND deleted_at IS NULL) WITH CHECK (auth_id = auth.uid());
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'users' AND policyname = 'users_delete_service_role') THEN
+        CREATE POLICY "users_delete_service_role" ON public.users FOR DELETE TO service_role USING (TRUE);
+    END IF;
+
+    -- Table 2: public.swipes
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'swipes' AND policyname = 'swipes_select_actor') THEN
+        CREATE POLICY "swipes_select_actor" ON public.swipes FOR SELECT TO authenticated USING (actor_id = public.get_current_user_id() AND NOT public.is_user_blocked(target_id));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'swipes' AND policyname = 'swipes_insert_actor') THEN
+        CREATE POLICY "swipes_insert_actor" ON public.swipes FOR INSERT TO authenticated WITH CHECK (actor_id = public.get_current_user_id() AND actor_id <> target_id AND NOT public.is_user_blocked(target_id));
+    END IF;
+
+    -- Table 3: public.matches
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'matches' AND policyname = 'matches_select_participants') THEN
+        CREATE POLICY "matches_select_participants" ON public.matches FOR SELECT TO authenticated USING (user1_id = public.get_current_user_id() OR user2_id = public.get_current_user_id());
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'matches' AND policyname = 'matches_insert_service_role') THEN
+        CREATE POLICY "matches_insert_service_role" ON public.matches FOR INSERT TO service_role WITH CHECK (TRUE);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'matches' AND policyname = 'matches_update_participants') THEN
+        CREATE POLICY "matches_update_participants" ON public.matches FOR UPDATE TO authenticated
+        USING ((user1_id = public.get_current_user_id() OR user2_id = public.get_current_user_id()) AND is_active = TRUE AND closure_status = 'active')
+        WITH CHECK (
+            (user1_id = public.get_current_user_id() OR user2_id = public.get_current_user_id())
+            AND closure_status IN ('closed_with_grace', 'unmatched')
+            AND closed_by_user_id = public.get_current_user_id()
+        );
+    END IF;
+
+    -- Table 4: public.messages
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'messages' AND policyname = 'messages_select_participants') THEN
+        CREATE POLICY "messages_select_participants" ON public.messages FOR SELECT TO authenticated USING (public.is_active_match_participant(match_id));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'messages' AND policyname = 'messages_insert_sender') THEN
+        CREATE POLICY "messages_insert_sender" ON public.messages FOR INSERT TO authenticated WITH CHECK (sender_id = public.get_current_user_id() AND public.is_active_match_participant(match_id));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'messages' AND policyname = 'messages_update_status') THEN
+        CREATE POLICY "messages_update_status" ON public.messages FOR UPDATE TO authenticated
+        USING (public.is_active_match_participant(match_id) AND sender_id <> public.get_current_user_id())
+        WITH CHECK (public.is_active_match_participant(match_id) AND sender_id <> public.get_current_user_id());
+    END IF;
+END $$;
+
+-- Column privilege restrictions on matches and messages
+REVOKE UPDATE ON public.matches FROM authenticated;
+GRANT UPDATE (closure_status, closed_by_user_id, closed_at, closure_template_key, closure_note) ON public.matches TO authenticated;
+
+REVOKE UPDATE ON public.messages FROM authenticated;
+GRANT UPDATE (status) ON public.messages TO authenticated;
+
+-- Tier 2: Monetization, Billing & 5-Network Ad SSV
+DO $$
+BEGIN
+    -- Table 5: public.ad_reward_ledger
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'ad_reward_ledger' AND policyname = 'ad_ledger_select_owner') THEN
+        CREATE POLICY "ad_ledger_select_owner" ON public.ad_reward_ledger FOR SELECT TO authenticated USING (user_id = public.get_current_user_id());
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'ad_reward_ledger' AND policyname = 'ad_ledger_insert_service') THEN
+        CREATE POLICY "ad_ledger_insert_service" ON public.ad_reward_ledger FOR INSERT TO service_role WITH CHECK (TRUE);
+    END IF;
+
+    -- Table 6: public.processed_ad_transactions
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'processed_ad_transactions' AND policyname = 'processed_ads_select_owner') THEN
+        CREATE POLICY "processed_ads_select_owner" ON public.processed_ad_transactions FOR SELECT TO authenticated USING (user_id = public.get_current_user_id());
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'processed_ad_transactions' AND policyname = 'processed_ads_manage_service') THEN
+        CREATE POLICY "processed_ads_manage_service" ON public.processed_ad_transactions FOR ALL TO service_role USING (TRUE);
+    END IF;
+
+    -- Table 7: public.in_app_purchases
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'in_app_purchases' AND policyname = 'iap_select_owner') THEN
+        CREATE POLICY "iap_select_owner" ON public.in_app_purchases FOR SELECT TO authenticated USING (user_id = public.get_current_user_id());
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'in_app_purchases' AND policyname = 'iap_manage_service') THEN
+        CREATE POLICY "iap_manage_service" ON public.in_app_purchases FOR ALL TO service_role USING (TRUE);
+    END IF;
+
+    -- Table 8: public.pending_web_entitlements
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'pending_web_entitlements' AND policyname = 'pending_entitlements_select_owner') THEN
+        CREATE POLICY "pending_entitlements_select_owner" ON public.pending_web_entitlements FOR SELECT TO authenticated USING (((email = (auth.jwt() ->> 'email') AND (auth.jwt() ->> 'email_verified')::BOOLEAN = TRUE)) OR public.is_superadmin());
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'pending_web_entitlements' AND policyname = 'pending_entitlements_service_role') THEN
+        CREATE POLICY "pending_entitlements_service_role" ON public.pending_web_entitlements FOR ALL TO service_role USING (TRUE);
+    END IF;
+END $$;
+
+-- Tier 3: Cryptographic Revelation & Consent Rituals
+DO $$
+BEGIN
+    -- Table 9: public.whatsapp_reveal_tokens
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'whatsapp_reveal_tokens' AND policyname = 'wa_tokens_select_participants') THEN
+        CREATE POLICY "wa_tokens_select_participants" ON public.whatsapp_reveal_tokens FOR SELECT TO authenticated USING (public.is_active_match_participant(match_id));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'whatsapp_reveal_tokens' AND policyname = 'wa_tokens_update_service_role') THEN
+        CREATE POLICY "wa_tokens_update_service_role" ON public.whatsapp_reveal_tokens FOR UPDATE TO service_role USING (TRUE) WITH CHECK (TRUE);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'whatsapp_reveal_tokens' AND policyname = 'wa_tokens_manage_service') THEN
+        CREATE POLICY "wa_tokens_manage_service" ON public.whatsapp_reveal_tokens FOR ALL TO service_role USING (TRUE);
+    END IF;
+
+    -- Table 10: public.contact_reveal_tokens
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'contact_reveal_tokens' AND policyname = 'contact_tokens_select_participants') THEN
+        CREATE POLICY "contact_tokens_select_participants" ON public.contact_reveal_tokens FOR SELECT TO authenticated USING (public.is_active_match_participant(match_id));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'contact_reveal_tokens' AND policyname = 'contact_tokens_update_service_role') THEN
+        CREATE POLICY "contact_tokens_update_service_role" ON public.contact_reveal_tokens FOR UPDATE TO service_role USING (TRUE) WITH CHECK (TRUE);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'contact_reveal_tokens' AND policyname = 'contact_tokens_manage_service') THEN
+        CREATE POLICY "contact_tokens_manage_service" ON public.contact_reveal_tokens FOR ALL TO service_role USING (TRUE);
+    END IF;
+
+    -- Table 11: public.photo_reveal_consents
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'photo_reveal_consents' AND policyname = 'photo_reveal_select_participants') THEN
+        CREATE POLICY "photo_reveal_select_participants" ON public.photo_reveal_consents FOR SELECT TO authenticated USING (requester_id = public.get_current_user_id() OR target_id = public.get_current_user_id());
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'photo_reveal_consents' AND policyname = 'photo_reveal_insert_requester') THEN
+        CREATE POLICY "photo_reveal_insert_requester" ON public.photo_reveal_consents FOR INSERT TO authenticated WITH CHECK (requester_id = public.get_current_user_id() AND requester_id <> target_id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'photo_reveal_consents' AND policyname = 'photo_reveal_update_target') THEN
+        CREATE POLICY "photo_reveal_update_target" ON public.photo_reveal_consents FOR UPDATE TO authenticated USING (target_id = public.get_current_user_id());
+    END IF;
+END $$;
+
+-- Tier 4: Anonymous Fast-Track Subsystem
+DO $$
+BEGIN
+    -- Table 12: public.blind_date_queue
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'blind_date_queue' AND policyname = 'blind_queue_select_owner') THEN
+        CREATE POLICY "blind_queue_select_owner" ON public.blind_date_queue FOR SELECT TO authenticated USING (user_id = public.get_current_user_id());
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'blind_date_queue' AND policyname = 'blind_queue_insert_owner') THEN
+        CREATE POLICY "blind_queue_insert_owner" ON public.blind_date_queue FOR INSERT TO authenticated WITH CHECK (user_id = public.get_current_user_id());
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'blind_date_queue' AND policyname = 'blind_queue_delete_owner') THEN
+        CREATE POLICY "blind_queue_delete_owner" ON public.blind_date_queue FOR DELETE TO authenticated USING (user_id = public.get_current_user_id());
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'blind_date_queue' AND policyname = 'blind_queue_service_role') THEN
+        CREATE POLICY "blind_queue_service_role" ON public.blind_date_queue FOR ALL TO service_role USING (TRUE);
+    END IF;
+
+    -- Table 13: public.blind_date_sessions
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'blind_date_sessions' AND policyname = 'blind_session_select_participants') THEN
+        CREATE POLICY "blind_session_select_participants" ON public.blind_date_sessions FOR SELECT TO authenticated USING (user1_id = public.get_current_user_id() OR user2_id = public.get_current_user_id());
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'blind_date_sessions' AND policyname = 'blind_session_update_service_role') THEN
+        CREATE POLICY "blind_session_update_service_role" ON public.blind_date_sessions FOR UPDATE TO service_role USING (TRUE) WITH CHECK (TRUE);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'blind_date_sessions' AND policyname = 'blind_session_service_role') THEN
+        CREATE POLICY "blind_session_service_role" ON public.blind_date_sessions FOR ALL TO service_role USING (TRUE);
+    END IF;
+
+    -- Table 14: public.blind_date_messages
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'blind_date_messages' AND policyname = 'blind_msg_select_participants') THEN
+        CREATE POLICY "blind_msg_select_participants" ON public.blind_date_messages FOR SELECT TO authenticated USING (sender_id = public.get_current_user_id() OR recipient_id = public.get_current_user_id());
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'blind_date_messages' AND policyname = 'blind_msg_insert_sender') THEN
+        CREATE POLICY "blind_msg_insert_sender" ON public.blind_date_messages FOR INSERT TO authenticated
+        WITH CHECK (
+            sender_id = public.get_current_user_id()
+            AND EXISTS (
+                SELECT 1 FROM public.blind_date_sessions s
+                WHERE s.id = session_id
+                  AND s.status = 'active'
+                  AND (
+                      (s.user1_id = public.get_current_user_id() AND recipient_id = s.user2_id)
+                      OR (s.user2_id = public.get_current_user_id() AND recipient_id = s.user1_id)
+                  )
+            )
+        );
+    END IF;
+END $$;
+
+-- Tier 5: DPDP Act 2023, IT Rules & Legal Protection
+REVOKE ALL ON public.underage_quarantine_registry FROM anon, authenticated;
+REVOKE ALL ON public.web_deletion_tokens FROM anon, authenticated;
+
+DO $$
+BEGIN
+    -- Table 15: public.underage_quarantine_registry
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'underage_quarantine_registry' AND policyname = 'underage_service_role_all') THEN
+        CREATE POLICY "underage_service_role_all" ON public.underage_quarantine_registry FOR ALL TO service_role USING (TRUE);
+    END IF;
+
+    -- Table 16: public.data_nominees
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'data_nominees' AND policyname = 'data_nominees_all_owner') THEN
+        CREATE POLICY "data_nominees_all_owner" ON public.data_nominees FOR ALL TO authenticated USING (user_id = public.get_current_user_id()) WITH CHECK (user_id = public.get_current_user_id());
+    END IF;
+
+    -- Table 17: public.data_export_requests
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'data_export_requests' AND policyname = 'data_export_all_owner') THEN
+        CREATE POLICY "data_export_all_owner" ON public.data_export_requests FOR ALL TO authenticated USING (user_id = public.get_current_user_id()) WITH CHECK (user_id = public.get_current_user_id());
+    END IF;
+
+    -- Table 18: public.consent_audit_logs
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'consent_audit_logs' AND policyname = 'consent_logs_select_owner') THEN
+        CREATE POLICY "consent_logs_select_owner" ON public.consent_audit_logs FOR SELECT TO authenticated USING (user_id = public.get_current_user_id());
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'consent_audit_logs' AND policyname = 'consent_logs_insert_owner') THEN
+        CREATE POLICY "consent_logs_insert_owner" ON public.consent_audit_logs FOR INSERT TO authenticated WITH CHECK (user_id = public.get_current_user_id());
+    END IF;
+
+    -- Table 19: public.grievance_dossiers
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'grievance_dossiers' AND policyname = 'grievance_select_reporter') THEN
+        CREATE POLICY "grievance_select_reporter" ON public.grievance_dossiers FOR SELECT TO authenticated USING (reporter_id = public.get_current_user_id() OR public.is_superadmin());
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'grievance_dossiers' AND policyname = 'grievance_insert_reporter') THEN
+        CREATE POLICY "grievance_insert_reporter" ON public.grievance_dossiers FOR INSERT TO authenticated WITH CHECK (reporter_id = public.get_current_user_id() AND (reported_user_id IS NULL OR reporter_id <> reported_user_id));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'grievance_dossiers' AND policyname = 'grievance_admin_update') THEN
+        CREATE POLICY "grievance_admin_update" ON public.grievance_dossiers FOR UPDATE TO authenticated USING (public.is_superadmin());
+    END IF;
+
+    -- Table 20: public.blocked_users
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'blocked_users' AND policyname = 'blocked_users_all_blocker') THEN
+        CREATE POLICY "blocked_users_all_blocker" ON public.blocked_users FOR ALL TO authenticated USING (blocker_id = public.get_current_user_id()) WITH CHECK (blocker_id = public.get_current_user_id() AND blocker_id <> blocked_id);
+    END IF;
+
+    -- Table 21: public.web_deletion_tokens
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'web_deletion_tokens' AND policyname = 'web_deletion_service_role') THEN
+        CREATE POLICY "web_deletion_service_role" ON public.web_deletion_tokens FOR ALL TO service_role USING (TRUE);
+    END IF;
+
+    -- Table 22: public.admin_kyc_escalations
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'admin_kyc_escalations' AND policyname = 'kyc_escalation_select_owner') THEN
+        CREATE POLICY "kyc_escalation_select_owner" ON public.admin_kyc_escalations FOR SELECT TO authenticated USING (user_id = public.get_current_user_id() OR public.is_superadmin());
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'admin_kyc_escalations' AND policyname = 'kyc_escalation_admin_manage') THEN
+        CREATE POLICY "kyc_escalation_admin_manage" ON public.admin_kyc_escalations FOR ALL TO authenticated USING (public.is_superadmin());
+    END IF;
+
+    -- Table 23: public.device_fcm_tokens
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'device_fcm_tokens' AND policyname = 'device_fcm_all_owner') THEN
+        CREATE POLICY "device_fcm_all_owner" ON public.device_fcm_tokens FOR ALL TO authenticated USING (user_id = public.get_current_user_id()) WITH CHECK (user_id = public.get_current_user_id());
+    END IF;
+
+    -- Table 24: public.admin_audit_logs
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'admin_audit_logs' AND policyname = 'admin_audit_logs_superadmin_all') THEN
+        CREATE POLICY "admin_audit_logs_superadmin_all" ON public.admin_audit_logs FOR ALL TO authenticated USING (public.is_superadmin());
+    END IF;
+END $$;
+
+-- ============================================================================
+-- 3. INTEGRITY TRIGGERS & ANTI-TAMPERING ENGINE
+-- ============================================================================
+
+-- 3.1 Match Participant Immutability and Grace Closure Trigger
+CREATE OR REPLACE FUNCTION public.protect_match_participants()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    IF NEW.user1_id IS DISTINCT FROM OLD.user1_id OR NEW.user2_id IS DISTINCT FROM OLD.user2_id THEN
+        RAISE EXCEPTION 'Match participant IDs are immutable.';
+    END IF;
+    IF OLD.closure_status IN ('closed_with_grace', 'unmatched') AND NEW.closure_status = 'active' THEN
+        RAISE EXCEPTION 'Closed matches cannot be reactivated by participants.';
+    END IF;
+    IF NEW.closure_status IN ('closed_with_grace', 'unmatched') THEN
+        NEW.is_active := FALSE;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'trg_protect_match_participants'
+          AND tgrelid = 'public.matches'::regclass
+    ) THEN
+        CREATE TRIGGER trg_protect_match_participants
+        BEFORE UPDATE ON public.matches
+        FOR EACH ROW
+        EXECUTE FUNCTION public.protect_match_participants();
+    END IF;
+END $$;
+
+-- 3.2 Privilege Escalation Guard on Registration
+CREATE OR REPLACE FUNCTION public.prevent_user_insert_privileges()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    IF auth.role() = 'service_role' THEN
+        RETURN NEW;
+    END IF;
+
+    NEW.role := 'user';
+    NEW.kyc_status := FALSE;
+    NEW.is_voice_verified := FALSE;
+    NEW.subscription_tier := 'free';
+    NEW.subscription_expires_at := NULL;
+    NEW.is_ad_free := FALSE;
+    NEW.reward_balance := 0;
+    NEW.boost_points := 0;
+    NEW.swipes_remaining := 25;
+    NEW.reveal_tokens_count := 1;
+    NEW.direct_letters_count := 1;
+    NEW.streak_count := 0;
+    NEW.blind_date_passes := 0;
+    NEW.deleted_at := NULL;
+    RETURN NEW;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'tr_prevent_user_insert_privileges'
+          AND tgrelid = 'public.users'::regclass
+    ) THEN
+        CREATE TRIGGER tr_prevent_user_insert_privileges
+        BEFORE INSERT ON public.users
+        FOR EACH ROW
+        EXECUTE FUNCTION public.prevent_user_insert_privileges();
+    END IF;
+END $$;
+
+-- 3.3 Anti-Tampering Trigger for Sensitive User Attributes
+CREATE OR REPLACE FUNCTION public.prevent_user_field_tampering()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    IF auth.role() = 'service_role' OR public.is_superadmin() THEN
+        RETURN NEW;
+    END IF;
+
+    IF NEW.kyc_status IS DISTINCT FROM OLD.kyc_status THEN
+        RAISE EXCEPTION 'Tampering detected: kyc_status cannot be modified directly';
+    END IF;
+    IF NEW.is_voice_verified IS DISTINCT FROM OLD.is_voice_verified THEN
+        RAISE EXCEPTION 'Tampering detected: is_voice_verified requires audio verification service';
+    END IF;
+    IF NEW.email IS DISTINCT FROM OLD.email THEN
+        RAISE EXCEPTION 'Tampering detected: email address change requires re-authentication';
+    END IF;
+    IF NEW.role IS DISTINCT FROM OLD.role THEN
+        RAISE EXCEPTION 'Tampering detected: role elevation is unauthorized';
+    END IF;
+    IF NEW.dob IS DISTINCT FROM OLD.dob THEN
+        RAISE EXCEPTION 'Tampering detected: declared DOB is legally immutable';
+    END IF;
+    IF NEW.subscription_tier IS DISTINCT FROM OLD.subscription_tier THEN
+        RAISE EXCEPTION 'Tampering detected: subscription_tier requires gateway validation';
+    END IF;
+    IF NEW.subscription_expires_at IS DISTINCT FROM OLD.subscription_expires_at THEN
+        RAISE EXCEPTION 'Tampering detected: subscription_expires_at requires gateway validation';
+    END IF;
+    IF NEW.is_ad_free IS DISTINCT FROM OLD.is_ad_free THEN
+        RAISE EXCEPTION 'Tampering detected: is_ad_free requires active entitlement';
+    END IF;
+    IF NEW.reward_balance IS DISTINCT FROM OLD.reward_balance THEN
+        RAISE EXCEPTION 'Tampering detected: reward_balance requires valid SSV ledger credit';
+    END IF;
+    IF NEW.boost_points IS DISTINCT FROM OLD.boost_points THEN
+        RAISE EXCEPTION 'Tampering detected: boost_points requires authorized reward credit';
+    END IF;
+    IF NEW.swipes_remaining IS DISTINCT FROM OLD.swipes_remaining THEN
+        RAISE EXCEPTION 'Tampering detected: swipes_remaining cannot be self-awarded';
+    END IF;
+    IF NEW.reveal_tokens_count IS DISTINCT FROM OLD.reveal_tokens_count THEN
+        RAISE EXCEPTION 'Tampering detected: reveal_tokens_count cannot be self-awarded';
+    END IF;
+    IF NEW.direct_letters_count IS DISTINCT FROM OLD.direct_letters_count THEN
+        RAISE EXCEPTION 'Tampering detected: direct_letters_count cannot be self-awarded';
+    END IF;
+    IF NEW.streak_count IS DISTINCT FROM OLD.streak_count THEN
+        RAISE EXCEPTION 'Tampering detected: streak_count is managed by daily cycle engine';
+    END IF;
+    IF NEW.deleted_at IS DISTINCT FROM OLD.deleted_at THEN
+        RAISE EXCEPTION 'Tampering detected: soft-deletion must proceed via legal erasure API';
+    END IF;
+    IF NEW.blind_date_passes IS DISTINCT FROM OLD.blind_date_passes
+       OR NEW.last_blind_date_date IS DISTINCT FROM OLD.last_blind_date_date THEN
+        RAISE EXCEPTION 'Tampering detected: blind date entitlements are server-managed';
+    END IF;
+    IF NEW.streak_expires_at IS DISTINCT FROM OLD.streak_expires_at
+       OR NEW.last_streak_ad_at IS DISTINCT FROM OLD.last_streak_ad_at THEN
+        RAISE EXCEPTION 'Tampering detected: streak timestamps are managed by daily cycle engine';
+    END IF;
+    IF NEW.referral_code IS DISTINCT FROM OLD.referral_code OR NEW.id IS DISTINCT FROM OLD.id THEN
+        RAISE EXCEPTION 'Tampering detected: identity fields are immutable';
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'tr_prevent_user_tampering'
+          AND tgrelid = 'public.users'::regclass
+    ) THEN
+        CREATE TRIGGER tr_prevent_user_tampering
+        BEFORE UPDATE ON public.users
+        FOR EACH ROW
+        EXECUTE FUNCTION public.prevent_user_field_tampering();
+    END IF;
+END $$;
+
+-- 3.3 Auto-Timestamp Refresh Trigger
+CREATE OR REPLACE FUNCTION public.handle_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'tr_users_updated_at'
+          AND tgrelid = 'public.users'::regclass
+    ) THEN
+        CREATE TRIGGER tr_users_updated_at
+        BEFORE UPDATE ON public.users
+        FOR EACH ROW
+        EXECUTE FUNCTION public.handle_updated_at();
+    END IF;
+END $$;
+
+-- 3.5 Cascade Storage and Account Cleanup Triggers
+CREATE OR REPLACE FUNCTION public.handle_user_cascade_cleanup()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    -- 1. Purge media objects from ur-heart-media storage bucket with storage bypass config
+    PERFORM set_config('storage.allow_delete_query', 'true', true);
+    DELETE FROM storage.objects
+    WHERE bucket_id = 'ur-heart-media'
+      AND (name LIKE ('users/' || OLD.auth_id::text || '/%'));
+    PERFORM set_config('storage.allow_delete_query', 'false', true);
+
+    RETURN OLD;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'trg_user_cascade_cleanup'
+          AND tgrelid = 'public.users'::regclass
+    ) THEN
+        CREATE TRIGGER trg_user_cascade_cleanup
+        BEFORE DELETE ON public.users
+        FOR EACH ROW
+        EXECUTE FUNCTION public.handle_user_cascade_cleanup();
+    END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.handle_user_auth_cleanup()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    -- 2. Cascade hard delete to auth.users if not already executing from auth cascade
+    IF OLD.auth_id IS NOT NULL AND pg_trigger_depth() <= 1 THEN
+        DELETE FROM auth.users
+        WHERE id = OLD.auth_id;
+    END IF;
+
+    RETURN NULL;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'trg_user_auth_cleanup'
+          AND tgrelid = 'public.users'::regclass
+    ) THEN
+        CREATE TRIGGER trg_user_auth_cleanup
+        AFTER DELETE ON public.users
+        FOR EACH ROW
+        EXECUTE FUNCTION public.handle_user_auth_cleanup();
+    END IF;
+END $$;
+
+-- ============================================================================
+-- 4. SECURE DISCOVERY PROJECTION VIEW
+-- ============================================================================
+
+CREATE OR REPLACE VIEW public.discovery_profiles
+WITH (security_barrier = TRUE, security_invoker = FALSE)
+AS
+SELECT
+    u.id,
+    u.full_name,
+    DATE_PART('year', AGE(CURRENT_DATE, u.dob))::INT2 AS age,
+    u.gender,
+    u.interested_in,
+    u.location_name,
+    ROUND(u.latitude::NUMERIC, 2) AS latitude,
+    ROUND(u.longitude::NUMERIC, 2) AS longitude,
+    u.bio,
+    u.profession,
+    u.education,
+    u.streak_count,
+    u.boost_points,
+    u.kyc_status,
+    u.is_photo_veiled,
+    CASE 
+        WHEN u.is_photo_veiled THEN ARRAY[]::TEXT[] 
+        ELSE u.photos 
+    END AS photos,
+    CASE 
+        WHEN u.is_photo_veiled THEN NULL 
+        ELSE u.avatar_url 
+    END::VARCHAR(500) AS avatar_url,
+    u.voice_spark_url,
+    u.voice_spark_prompt,
+    u.voice_spark_duration,
+    u.is_voice_verified,
+    u.created_at
+FROM public.users u
+WHERE u.deleted_at IS NULL
+  AND u.is_profile_completed = TRUE
+  AND u.is_incognito = FALSE
+  AND u.auth_id <> auth.uid()
+  AND NOT public.is_user_blocked(u.id);
+
+GRANT SELECT ON public.discovery_profiles TO authenticated;
+
+-- ============================================================================
+-- 5. MAINTENANCE & DATA RETENTION AUTOMATION
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.purge_expired_temporary_records()
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    -- 1. Purge messages older than 30 days
+    DELETE FROM public.messages
+    WHERE created_at < NOW() - INTERVAL '30 days';
+
+    -- 2. Purge pass swipes older than 30 days
+    DELETE FROM public.swipes
+    WHERE swipe_type = 'pass'
+      AND created_at < NOW() - INTERVAL '30 days';
+
+    -- 3. Invalidate completed/expired data export archives
+    DELETE FROM public.data_export_requests
+    WHERE expires_at IS NOT NULL AND expires_at < NOW();
+
+    -- 4. Purge expired web deletion tokens
+    DELETE FROM public.web_deletion_tokens
+    WHERE expires_at < NOW();
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.purge_expired_temporary_records() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.purge_expired_temporary_records() TO service_role;
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+        PERFORM cron.schedule(
+            'sanctuary_daily_retention_purge',
+            '0 3 * * *',
+            'SELECT public.purge_expired_temporary_records();'
+        );
+    END IF;
+END $$;
+
+
