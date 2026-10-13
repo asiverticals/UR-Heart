@@ -207,7 +207,9 @@ $$;
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM pg_trigger WHERE tgname = 'trg_check_message_sender'
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'trg_check_message_sender'
+          AND tgrelid = 'public.messages'::regclass
     ) THEN
         CREATE TRIGGER trg_check_message_sender
         BEFORE INSERT OR UPDATE ON public.messages
@@ -422,6 +424,44 @@ CREATE TABLE IF NOT EXISTS public.blind_date_sessions (
     CONSTRAINT chk_blind_session_no_self CHECK (user1_id <> user2_id)
 );
 
+ALTER TABLE public.blind_date_queue
+    ADD CONSTRAINT fk_blind_queue_paired_session
+    FOREIGN KEY (paired_session_id)
+    REFERENCES public.blind_date_sessions(id)
+    ON DELETE SET NULL;
+
+-- Trigger: Reset queue status to 'waiting' when a paired blind date session is deleted
+CREATE OR REPLACE FUNCTION public.reset_queue_on_session_deletion()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    UPDATE public.blind_date_queue
+    SET status = CASE 
+            WHEN status = 'paired' THEN 'waiting' 
+            ELSE status 
+        END,
+        paired_session_id = NULL
+    WHERE paired_session_id = OLD.id;
+    RETURN OLD;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'trg_reset_queue_on_session_deletion'
+          AND tgrelid = 'public.blind_date_sessions'::regclass
+    ) THEN
+        CREATE TRIGGER trg_reset_queue_on_session_deletion
+        BEFORE DELETE ON public.blind_date_sessions
+        FOR EACH ROW EXECUTE FUNCTION public.reset_queue_on_session_deletion();
+    END IF;
+END $$;
+
 MD
 
 Table 14: public.blind_date_messages
@@ -440,6 +480,41 @@ CREATE TABLE IF NOT EXISTS public.blind_date_messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_blind_msg_session ON public.blind_date_messages(session_id, created_at ASC);
+
+-- Trigger: Enforce sender and recipient belong to the referenced blind date session
+CREATE OR REPLACE FUNCTION public.check_blind_date_message_sender()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM public.blind_date_sessions
+        WHERE id = NEW.session_id
+          AND (
+            (user1_id = NEW.sender_id AND (NEW.recipient_id IS NULL OR NEW.recipient_id = user2_id))
+            OR (user2_id = NEW.sender_id AND (NEW.recipient_id IS NULL OR NEW.recipient_id = user1_id))
+          )
+    ) THEN
+        RAISE EXCEPTION 'Sender % or recipient % is invalid for blind date session %', NEW.sender_id, NEW.recipient_id, NEW.session_id;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'trg_check_blind_date_message_sender'
+          AND tgrelid = 'public.blind_date_messages'::regclass
+    ) THEN
+        CREATE TRIGGER trg_check_blind_date_message_sender
+        BEFORE INSERT OR UPDATE ON public.blind_date_messages
+        FOR EACH ROW EXECUTE FUNCTION public.check_blind_date_message_sender();
+    END IF;
+END $$;
 
 MD
 
