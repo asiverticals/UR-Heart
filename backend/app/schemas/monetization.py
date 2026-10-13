@@ -1,0 +1,54 @@
+from decimal import Decimal
+from typing import Literal, Optional
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+class RazorpayOrderCreate(BaseModel):
+    """Payment order creation request strictly gated by Condition C2."""
+    model_config = ConfigDict(extra="forbid")
+
+    product_identifier: str = Field(..., max_length=60, description="SKU identifier from product catalog")
+    currency: Literal["INR", "USD"] = "INR"
+
+    @field_validator("currency")
+    @classmethod
+    def validate_usd_allowed(cls, v: str) -> str:
+        if v == "USD":
+            try:
+                from ..core.config import settings
+            except (ImportError, ValueError):
+                from backend.app.core.config import settings
+            if not getattr(settings, "ENABLE_GLOBAL_USD_BILLING", False):
+                raise ValueError("USD billing is disabled under condition C2 until global milestone activation")
+        return v
+
+class RazorpayPaymentVerify(BaseModel):
+    """HMAC-SHA256 signature verification payload upon checkout completion."""
+    model_config = ConfigDict(extra="forbid")
+
+    razorpay_order_id: str = Field(..., max_length=150)
+    razorpay_payment_id: str = Field(..., max_length=150)
+    razorpay_signature: str = Field(..., max_length=256)
+
+class InAppPurchaseVerifyRequest(BaseModel):
+    """Google Play Billing purchase token validation request."""
+    model_config = ConfigDict(extra="forbid")
+
+    order_id: str = Field(..., max_length=150)
+    product_identifier: str = Field(..., max_length=60)
+    purchase_token: str = Field(..., min_length=1)
+    amount_gross: Decimal = Field(..., ge=0)
+
+class AdSSVCallbackParams(BaseModel):
+    """Ad network Server-Side Verification (SSV) callback query parameters."""
+    model_config = ConfigDict(extra="allow")
+
+    custom_data: str = Field(..., description="{user_id}:{ad_type}:{target_id}")
+    transaction_id: str = Field(..., description="Cryptographic unique ad view ID")
+    signature: Optional[str] = None
+    key_id: Optional[str] = None
+
+class WebStoreClaimPending(BaseModel):
+    """Entitlement claim payload for Web Store off-platform purchases."""
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr = Field(..., description="Account email linked to pending purchase entitlement")
