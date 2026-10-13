@@ -145,13 +145,18 @@ def verify_google_id_token(id_token: str) -> Dict[str, Any]:
         )
 
     kid = header.get("kid")
-    keys = _get_google_public_keys()
-    public_key = keys.get(kid)
-    if not public_key:
-        # Key rotation fallback: force-refresh JWKS cache once on unknown kid
-        keys = _get_google_public_keys(force_refresh=True)
-        public_key = keys.get(kid)
+    if not kid:
+        raise SanctuaryException(
+            error_code="INVALID_GOOGLE_TOKEN",
+            message="Missing kid in Google token header.",
+            status_code=401,
+        )
 
+    keys = _get_google_public_keys()
+    if kid not in keys:
+        keys = _get_google_public_keys(force_refresh=True)
+
+    public_key = keys.get(kid)
     if not public_key:
         raise SanctuaryException(
             error_code="INVALID_GOOGLE_TOKEN",
@@ -159,14 +164,11 @@ def verify_google_id_token(id_token: str) -> Dict[str, Any]:
             status_code=401,
         )
 
-    expected_aud = settings.GOOGLE_SERVER_CLIENT_ID or (
-        "test-client-id.apps.googleusercontent.com" if settings.ENVIRONMENT in ("test", "development") else None
-    )
-    if not expected_aud:
+    if not settings.GOOGLE_SERVER_CLIENT_ID:
         raise SanctuaryException(
-            error_code="GOOGLE_AUTH_UNCONFIGURED",
-            message="Google server client ID is unconfigured.",
-            status_code=500,
+            error_code="GOOGLE_AUTH_UNAVAILABLE",
+            message="Google sign-in is not configured.",
+            status_code=503,
         )
 
     try:
@@ -174,8 +176,8 @@ def verify_google_id_token(id_token: str) -> Dict[str, Any]:
             id_token,
             public_key,
             algorithms=["RS256"],
-            options={"verify_aud": True},
-            audience=expected_aud,
+            audience=settings.GOOGLE_SERVER_CLIENT_ID,
+            options={"require": ["exp", "iat", "aud", "iss", "sub"]},
         )
     except jwt.PyJWTError as e:
         raise SanctuaryException(
@@ -202,6 +204,7 @@ def verify_google_id_token(id_token: str) -> Dict[str, Any]:
     return {
         "sub": claims["sub"],
         "email": claims.get("email"),
+        "email_verified": bool(claims.get("email_verified", False)),
         "name": claims.get("name", "Seeker"),
         "picture": claims.get("picture"),
     }

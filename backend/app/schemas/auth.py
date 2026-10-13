@@ -10,14 +10,6 @@ class RegisterIntentRequest(BaseModel):
     dob: date = Field(..., description="Declared Date of Birth")
     device_fingerprint: str = Field(..., min_length=32, max_length=64, description="SHA-256 hardware hash")
 
-    @field_validator("dob")
-    @classmethod
-    def validate_age_threshold(cls, v: date) -> date:
-        today = date.today()
-        age = today.year - v.year - ((today.month, today.day) < (v.month, v.day))
-        if age < 18:
-            raise ValueError("Seeker is under 18 years of age. Registration prohibited.")
-        return v
 
 class GoogleSyncRequest(BaseModel):
     """Google OAuth2 RS256 ID Token exchange contract."""

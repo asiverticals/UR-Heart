@@ -48,24 +48,34 @@ def safe_years_ago(years: int, from_date: Optional[date] = None) -> date:
     except ValueError:
         return date(d.year - years, 2, 28)
 
-def test_register_intent_age_verification():
-    """Test 1: RegisterIntentRequest permits age >= 18 and strictly rejects age < 18."""
+def test_profile_create_age_verification():
+    """Test 1: ProfileCreate permits age >= 18 and strictly rejects age < 18."""
     # 20 years old -> valid
     valid_dob = safe_years_ago(20)
-    req = RegisterIntentRequest(
+    profile = ProfileCreate(
+        full_name="Valid Seeker",
         dob=valid_dob,
-        device_fingerprint="a" * 32,
+        gender="Other",
+        interested_in="Everyone",
+        contact_bridge_type="whatsapp",
+        contact_bridge_raw="+919876543210",
+        photos=["https://media.urheart.app/p1.jpg"],
     )
-    assert req.dob == valid_dob
+    assert profile.dob == valid_dob
 
     # 17 years old -> raises ValidationError
     underage_dob = safe_years_ago(17)
     with pytest.raises(ValidationError) as exc:
-        RegisterIntentRequest(
+        ProfileCreate(
+            full_name="Underage Seeker",
             dob=underage_dob,
-            device_fingerprint="a" * 32,
+            gender="Other",
+            interested_in="Everyone",
+            contact_bridge_type="whatsapp",
+            contact_bridge_raw="+919876543210",
+            photos=["https://media.urheart.app/p1.jpg"],
         )
-    assert "under 18 years of age" in str(exc.value)
+    assert "at least 18 years of age" in str(exc.value)
 
 def test_ingestion_extra_fields_forbidden():
     """Test 2: All ingestion schemas reject unknown injected fields (extra='forbid')."""

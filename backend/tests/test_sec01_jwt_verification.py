@@ -83,3 +83,33 @@ def test_tampered_token_rejection():
     tampered_token = f"{parts[0]}.{parts[1]}.{tampered_sig}"
     assert decode_access_token(tampered_token) is None
 
+
+def test_verify_google_id_token_missing_client_id_raises_503(monkeypatch):
+    """Test 7: verify_google_id_token fails closed with 503 when GOOGLE_SERVER_CLIENT_ID is unset."""
+    from unittest.mock import patch
+    from backend.app.core.config import settings
+    from backend.app.core.exceptions import SanctuaryException
+    from backend.app.core.security import verify_google_id_token
+
+    monkeypatch.setattr(settings, "GOOGLE_SERVER_CLIENT_ID", "")
+    with patch("jwt.get_unverified_header", return_value={"kid": "mock_kid"}):
+        with patch("backend.app.core.security._get_google_public_keys", return_value={"mock_kid": "mock_key"}):
+            with pytest.raises(SanctuaryException) as exc_info:
+                verify_google_id_token("mock.google.id_token")
+            assert exc_info.value.status_code == 503
+            assert exc_info.value.error_code == "GOOGLE_AUTH_UNAVAILABLE"
+
+
+def test_verify_google_id_token_missing_kid_raises_401():
+    """Test 8: verify_google_id_token raises 401 when token header lacks kid."""
+    from unittest.mock import patch
+    from backend.app.core.exceptions import SanctuaryException
+    from backend.app.core.security import verify_google_id_token
+
+    with patch("jwt.get_unverified_header", return_value={}):
+        with pytest.raises(SanctuaryException) as exc_info:
+            verify_google_id_token("mock.google.id_token")
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.error_code == "INVALID_GOOGLE_TOKEN"
+
+

@@ -31,52 +31,6 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 # Custom Unified Exception Handlers
 app.add_exception_handler(SanctuaryException, sanctuary_exception_handler)
 
-from fastapi.exceptions import RequestValidationError
-from datetime import date, datetime, timedelta, timezone
-from .models.domain.legal import UnderageQuarantineRegistry
-
-@app.exception_handler(RequestValidationError)
-async def custom_validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-    if request.url.path.endswith("/auth/register-intent"):
-        for err in exc.errors():
-            msg = str(err.get("msg", ""))
-            if "under 18 years of age" in msg.lower():
-                age_val = None
-                try:
-                    body = await request.json()
-                    fp = body.get("device_fingerprint")
-                    dob_str = body.get("dob")
-                    if fp and dob_str:
-                        dob_val = date.fromisoformat(dob_str)
-                        today = date.today()
-                        age_val = today.year - dob_val.year - ((today.month, today.day) < (dob_val.month, dob_val.day))
-                        from .core.database import get_db, AsyncSessionLocal
-                        from .services.auth_service import auth_service
-                        if get_db in app.dependency_overrides:
-                            gen = app.dependency_overrides[get_db]()
-                            async for session in gen:
-                                await auth_service.record_underage_quarantine(fp, dob_val, age_val, session)
-                                break
-                        else:
-                            async with AsyncSessionLocal() as session:
-                                await auth_service.record_underage_quarantine(fp, dob_val, age_val, session)
-                except Exception as err:
-                    import logging
-                    logging.getLogger(__name__).error("Failed to record quarantine write in validation handler: %s", err)
-
-                return JSONResponse(
-                    status_code=403,
-                    content={
-                        "success": False,
-                        "error_code": "UNDERAGE_QUARANTINE_TRIGGERED",
-                        "message": "Seeker is under the legal age threshold.",
-                        "details": {"age": age_val},
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    },
-                )
-    from fastapi.exception_handlers import request_validation_exception_handler
-    return await request_validation_exception_handler(request, exc)
-
 
 # CORS Policy
 app.add_middleware(

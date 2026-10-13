@@ -117,12 +117,21 @@ class AuthService:
         result = await session.execute(stmt)
         user = result.scalars().first()
 
+        # Verify email is verified before proceeding
+        if not claims.get("email_verified"):
+            raise SanctuaryException(
+                error_code="GOOGLE_EMAIL_UNVERIFIED",
+                message="Google email address has not been verified.",
+                status_code=400,
+            )
+
         # If not found by auth_id, check for pre-existing account by verified email
         if not user and email:
             stmt_email = select(User).where(User.email == email).limit(1)
             res_email = await session.execute(stmt_email)
-            user = res_email.scalars().first()
-            if user:
+            existing_email_user = res_email.scalars().first()
+            if existing_email_user:
+                user = existing_email_user
                 user.auth_id = auth_id
                 await session.commit()
 
@@ -169,7 +178,7 @@ class AuthService:
     ) -> bool:
         """Generates single-use cryptographic token and dispatches magic link."""
         _ = create_magic_link_token(email)
-        logger.debug("Magic link dispatched for seeker.")
+        logger.debug("Magic link dispatched.")
         return True
 
     @staticmethod
@@ -187,7 +196,13 @@ class AuthService:
             )
 
         # Enforce single-use token consumption
-        jti = payload.get("jti") or payload["sub"]
+        jti = payload.get("jti")
+        if not jti:
+            raise SanctuaryException(
+                error_code="INVALID_MAGIC_LINK",
+                message="Magic link token missing unique identifier.",
+                status_code=401,
+            )
         now_ts = datetime.now(timezone.utc).timestamp()
         expired_jtis = [k for k, exp in _consumed_magic_tokens.items() if exp < now_ts]
         for k in expired_jtis:

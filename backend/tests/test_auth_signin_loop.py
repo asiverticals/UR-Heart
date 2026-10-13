@@ -109,6 +109,7 @@ async def test_google_sync_provision_new_user(override_db):
     mock_claims = {
         "sub": "google_uid_987654321",
         "email": "aarav.sharma@gmail.com",
+        "email_verified": True,
         "name": "Aarav Sharma",
         "picture": "https://lh3.googleusercontent.com/avatar_aarav.jpg",
     }
@@ -151,6 +152,7 @@ async def test_google_sync_existing_user(override_db, make_user):
     mock_claims = {
         "sub": sub_str,
         "email": "existing_seeker@urheart.app",
+        "email_verified": True,
         "name": "Diya Patel",
         "picture": None,
     }
@@ -281,4 +283,36 @@ async def test_register_intent_repeat_underage_updates_quarantine(override_db):
         )
         assert resp2.status_code == 403
         assert resp2.json()["error_code"] == "UNDERAGE_QUARANTINE_TRIGGERED"
+
+@pytest.mark.asyncio
+async def test_google_sync_unverified_email_rejected_and_safe(override_db, make_user):
+    """Test 10: Google token with unverified email returns 400 and preserves existing accounts."""
+    existing_user = make_user(email="victim@urheart.app", full_name="Victim Seeker")
+    override_db.add(existing_user)
+    await override_db.commit()
+
+    attacker_sub = "google_attacker_9999"
+    attacker_auth_id = resolve_auth_uuid(attacker_sub)
+    mock_claims = {
+        "sub": attacker_sub,
+        "email": "victim@urheart.app",
+        "email_verified": False,  # Unverified email
+        "name": "Attacker",
+        "picture": None,
+    }
+
+    with patch("backend.app.services.auth_service.verify_google_id_token", return_value=mock_claims):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/auth/google-sync",
+                json={"id_token": "mocked.valid.rs256.id_token.payload." + "x" * 30},
+            )
+        assert resp.status_code == 400
+        assert resp.json()["error_code"] == "GOOGLE_EMAIL_UNVERIFIED"
+
+    # Verify existing victim user's auth_id was NOT overwritten
+    await override_db.refresh(existing_user)
+    assert existing_user.auth_id != attacker_auth_id
+
+
 
