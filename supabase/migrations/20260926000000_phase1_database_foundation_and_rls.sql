@@ -130,6 +130,7 @@ CREATE TABLE IF NOT EXISTS public.messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_match_chronological ON public.messages(match_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_purge ON public.messages(created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_messages_client_id ON public.messages(match_id, sender_id, client_id) WHERE client_id IS NOT NULL;
 
 -- Trigger: Require message sender to be a participant in the referenced match
 CREATE OR REPLACE FUNCTION public.check_message_sender_is_participant()

@@ -315,6 +315,14 @@ class Message(Base):
 
     __table_args__ = (
         CheckConstraint("status IN ('sent', 'delivered', 'read')", name="chk_msg_status"),
+        Index(
+            "uq_messages_client_id",
+            "match_id",
+            "sender_id",
+            "client_id",
+            unique=True,
+            postgresql_where=text("client_id IS NOT NULL"),
+        ),
     )
 
 MD
