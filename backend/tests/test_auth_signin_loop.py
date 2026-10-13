@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 from sqlalchemy import select
@@ -114,7 +114,7 @@ async def test_google_sync_provision_new_user(override_db):
         "picture": "https://lh3.googleusercontent.com/avatar_aarav.jpg",
     }
 
-    with patch("backend.app.services.auth_service.verify_google_id_token", return_value=mock_claims):
+    with patch("backend.app.services.auth_service.verify_google_id_token", new_callable=AsyncMock, return_value=mock_claims):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post(
                 "/api/v1/auth/google-sync",
@@ -157,7 +157,7 @@ async def test_google_sync_existing_user(override_db, make_user):
         "picture": None,
     }
 
-    with patch("backend.app.services.auth_service.verify_google_id_token", return_value=mock_claims):
+    with patch("backend.app.services.auth_service.verify_google_id_token", new_callable=AsyncMock, return_value=mock_claims):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post(
                 "/api/v1/auth/google-sync",
@@ -206,6 +206,14 @@ async def test_magic_link_dispatch_and_verify(override_db):
         )
         assert replay_resp.status_code == 401
         assert replay_resp.json()["error_code"] == "TOKEN_ALREADY_USED"
+
+        # Step 3b: Verify ConsumedMagicToken record is physically persisted in the database
+        from backend.app.models.domain.legal import ConsumedMagicToken
+        stmt_cm = select(ConsumedMagicToken).where(ConsumedMagicToken.email == email)
+        res_cm = await override_db.execute(stmt_cm)
+        persisted_token = res_cm.scalars().first()
+        assert persisted_token is not None
+        assert persisted_token.email == email
 
         # Step 4: Invalid token fails with 401
         invalid_resp = await client.post(
@@ -301,7 +309,7 @@ async def test_google_sync_unverified_email_rejected_and_safe(override_db, make_
         "picture": None,
     }
 
-    with patch("backend.app.services.auth_service.verify_google_id_token", return_value=mock_claims):
+    with patch("backend.app.services.auth_service.verify_google_id_token", new_callable=AsyncMock, return_value=mock_claims):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post(
                 "/api/v1/auth/google-sync",

@@ -203,3 +203,16 @@ class WebDeletionToken(Base):
         server_default=func.now(),
         nullable=False,
     )
+
+class ConsumedMagicToken(Base):
+    __tablename__ = "consumed_magic_tokens"
+
+    jti: Mapped[str] = mapped_column(String(64), primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMPTZ,
+        server_default=func.now(),
+        nullable=False,
+    )
+

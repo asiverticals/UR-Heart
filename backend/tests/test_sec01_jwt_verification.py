@@ -84,23 +84,25 @@ def test_tampered_token_rejection():
     assert decode_access_token(tampered_token) is None
 
 
-def test_verify_google_id_token_missing_client_id_raises_503(monkeypatch):
+@pytest.mark.asyncio
+async def test_verify_google_id_token_missing_client_id_raises_503(monkeypatch):
     """Test 7: verify_google_id_token fails closed with 503 when GOOGLE_SERVER_CLIENT_ID is unset."""
-    from unittest.mock import patch
+    from unittest.mock import AsyncMock, patch
     from backend.app.core.config import settings
     from backend.app.core.exceptions import SanctuaryException
     from backend.app.core.security import verify_google_id_token
 
     monkeypatch.setattr(settings, "GOOGLE_SERVER_CLIENT_ID", "")
     with patch("jwt.get_unverified_header", return_value={"kid": "mock_kid"}):
-        with patch("backend.app.core.security._get_google_public_keys", return_value={"mock_kid": "mock_key"}):
+        with patch("backend.app.core.security._get_google_public_keys", new_callable=AsyncMock, return_value={"mock_kid": "mock_key"}):
             with pytest.raises(SanctuaryException) as exc_info:
-                verify_google_id_token("mock.google.id_token")
+                await verify_google_id_token("mock.google.id_token")
             assert exc_info.value.status_code == 503
             assert exc_info.value.error_code == "GOOGLE_AUTH_UNAVAILABLE"
 
 
-def test_verify_google_id_token_missing_kid_raises_401():
+@pytest.mark.asyncio
+async def test_verify_google_id_token_missing_kid_raises_401():
     """Test 8: verify_google_id_token raises 401 when token header lacks kid."""
     from unittest.mock import patch
     from backend.app.core.exceptions import SanctuaryException
@@ -108,8 +110,29 @@ def test_verify_google_id_token_missing_kid_raises_401():
 
     with patch("jwt.get_unverified_header", return_value={}):
         with pytest.raises(SanctuaryException) as exc_info:
-            verify_google_id_token("mock.google.id_token")
+            await verify_google_id_token("mock.google.id_token")
         assert exc_info.value.status_code == 401
         assert exc_info.value.error_code == "INVALID_GOOGLE_TOKEN"
+
+
+@pytest.mark.asyncio
+async def test_get_google_public_keys_does_not_leak_internal_error_details():
+    """Test 9: Network failure during JWKS fetch raises 503 without leaking raw exception in details."""
+    from unittest.mock import AsyncMock, patch
+    import httpx
+    from backend.app.core.exceptions import SanctuaryException
+    from backend.app.core.security import _get_google_public_keys, _google_oauth_keys_cache
+
+    _google_oauth_keys_cache["keys"] = {}
+    _google_oauth_keys_cache["expires_at"] = 0.0
+
+    with patch("httpx.AsyncClient.get", side_effect=httpx.ConnectError("Private internal socket failure")):
+        with pytest.raises(SanctuaryException) as exc_info:
+            await _get_google_public_keys(force_refresh=True)
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.error_code == "GOOGLE_AUTH_UNAVAILABLE"
+        # Must NOT leak internal exception text in details!
+        assert exc_info.value.details is None or "Private internal socket failure" not in str(exc_info.value.details)
+
 
 

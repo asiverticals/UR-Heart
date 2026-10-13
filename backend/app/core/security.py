@@ -96,17 +96,18 @@ def decode_magic_link_token(token: str) -> Optional[Dict[str, Any]]:
     except (jwt.PyJWTError, ValueError):
         return None
 
-def _get_google_public_keys(force_refresh: bool = False) -> Dict[str, Any]:
-    """Fetches Google public JWKs caching in-memory according to Cache-Control max-age."""
+async def _get_google_public_keys(force_refresh: bool = False) -> Dict[str, Any]:
+    """Fetches Google public JWKs caching in-memory according to Cache-Control max-age asynchronously."""
     global _google_oauth_keys_cache
     now = time.time()
     if not force_refresh and _google_oauth_keys_cache["keys"] and now < _google_oauth_keys_cache["expires_at"]:
         return _google_oauth_keys_cache["keys"]
 
     try:
-        resp = httpx.get(GOOGLE_CERTS_URL, timeout=5.0)
-        resp.raise_for_status()
-        jwks = resp.json()
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(GOOGLE_CERTS_URL)
+            resp.raise_for_status()
+            jwks = resp.json()
         max_age = 3600
         cache_control = resp.headers.get("Cache-Control", "")
         for part in cache_control.split(","):
@@ -124,17 +125,18 @@ def _get_google_public_keys(force_refresh: bool = False) -> Dict[str, Any]:
         _google_oauth_keys_cache["expires_at"] = now + max_age
         return keys
     except Exception as e:
+        import logging
+        logging.getLogger(__name__).error("Failed to retrieve Google public authentication keys: %s", e)
         if not force_refresh and _google_oauth_keys_cache["keys"]:
             return _google_oauth_keys_cache["keys"]
         raise SanctuaryException(
             error_code="GOOGLE_AUTH_UNAVAILABLE",
             message="Failed to retrieve Google public authentication keys.",
             status_code=503,
-            details={"error": str(e)},
         )
 
-def verify_google_id_token(id_token: str) -> Dict[str, Any]:
-    """Verifies RS256 Google ID token against cached Google x509 certs with audience check."""
+async def verify_google_id_token(id_token: str) -> Dict[str, Any]:
+    """Verifies RS256 Google ID token against cached Google x509 certs with audience check asynchronously."""
     try:
         header = jwt.get_unverified_header(id_token)
     except Exception:
@@ -152,9 +154,9 @@ def verify_google_id_token(id_token: str) -> Dict[str, Any]:
             status_code=401,
         )
 
-    keys = _get_google_public_keys()
+    keys = await _get_google_public_keys()
     if kid not in keys:
-        keys = _get_google_public_keys(force_refresh=True)
+        keys = await _get_google_public_keys(force_refresh=True)
 
     public_key = keys.get(kid)
     if not public_key:

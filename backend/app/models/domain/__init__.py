@@ -25,6 +25,7 @@ from .legal import (
     GrievanceDossier,
     BlockedUser,
     WebDeletionToken,
+    ConsumedMagicToken,
 )
 from .admin_telemetry import (
     AdminKycEscalation,
@@ -35,7 +36,7 @@ from .admin_telemetry import (
 __all__ = [
     "Base",
     "TimestampMixin",
-    # 24 Domain Models
+    # 25 Domain Models
     "User",
     "Swipe",
     "Match",
@@ -57,6 +58,7 @@ __all__ = [
     "GrievanceDossier",
     "BlockedUser",
     "WebDeletionToken",
+    "ConsumedMagicToken",
     "AdminKycEscalation",
     "DeviceFcmToken",
     "AdminAuditLog",

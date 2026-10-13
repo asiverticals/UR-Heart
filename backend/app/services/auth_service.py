@@ -15,14 +15,11 @@ from ..core.security import (
     resolve_auth_uuid,
     verify_google_id_token,
 )
-from ..models.domain.legal import UnderageQuarantineRegistry
+from ..models.domain.legal import ConsumedMagicToken, UnderageQuarantineRegistry
 from ..models.domain.user import User
 from ..schemas.auth import TokenResponse
 
 logger = logging.getLogger(__name__)
-
-# In-memory single-use magic link token ledger: {jti: exp_timestamp}
-_consumed_magic_tokens: Dict[str, float] = {}
 
 class AuthService:
     """Authentication and identity domain service managing seeker onboarding and sessions."""
@@ -108,7 +105,7 @@ class AuthService:
         session: AsyncSession,
     ) -> TokenResponse:
         """Exchanges verified Google RS256 token claims for an authenticated Sanctuary session."""
-        claims = verify_google_id_token(id_token)
+        claims = await verify_google_id_token(id_token)
         auth_id = resolve_auth_uuid(claims["sub"])
         email = claims.get("email")
 
@@ -195,7 +192,7 @@ class AuthService:
                 status_code=401,
             )
 
-        # Enforce single-use token consumption
+        # Enforce single-use token consumption via persistent database ledger
         jti = payload.get("jti")
         if not jti:
             raise SanctuaryException(
@@ -203,21 +200,32 @@ class AuthService:
                 message="Magic link token missing unique identifier.",
                 status_code=401,
             )
-        now_ts = datetime.now(timezone.utc).timestamp()
-        expired_jtis = [k for k, exp in _consumed_magic_tokens.items() if exp < now_ts]
-        for k in expired_jtis:
-            _consumed_magic_tokens.pop(k, None)
 
-        if jti in _consumed_magic_tokens:
+        stmt_jti = select(ConsumedMagicToken).where(ConsumedMagicToken.jti == jti).limit(1)
+        res_jti = await session.execute(stmt_jti)
+        if res_jti.scalars().first():
             raise SanctuaryException(
                 error_code="TOKEN_ALREADY_USED",
                 message="Magic link token has already been used.",
                 status_code=401,
             )
-        _consumed_magic_tokens[jti] = float(payload.get("exp", now_ts + 900))
 
         email = payload["sub"]
         auth_id = resolve_auth_uuid(email)
+
+        # Persist consumed JTI record into database
+        exp_ts = payload.get("exp")
+        exp_dt = (
+            datetime.fromtimestamp(exp_ts, tz=timezone.utc)
+            if exp_ts
+            else datetime.now(timezone.utc) + timedelta(minutes=15)
+        )
+        consumed_entry = ConsumedMagicToken(
+            jti=jti,
+            email=email,
+            expires_at=exp_dt,
+        )
+        session.add(consumed_entry)
 
         # Lookup strictly by verified unique email
         stmt = select(User).where(User.email == email).limit(1)
@@ -240,6 +248,8 @@ class AuthService:
             session.add(user)
             await session.commit()
             await session.refresh(user)
+        else:
+            await session.commit()
 
         access_token = create_access_token(user.id)
         refresh_token = create_refresh_token(user.id)
