@@ -164,3 +164,210 @@ END $$;
 
 -- Enable Row Level Security
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================================
+-- Tier 2: Monetization, Billing & 5-Network Ad SSV
+-- ============================================================================
+
+-- 6. Table 5: public.ad_reward_ledger
+CREATE TABLE IF NOT EXISTS public.ad_reward_ledger (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    ssv_transaction_id VARCHAR(150) UNIQUE NOT NULL,
+    network VARCHAR(20) NOT NULL CHECK (network IN ('admob', 'admob_client', 'meta', 'unity', 'chartboost', 'liftoff')),
+    ad_type VARCHAR(30) NOT NULL CHECK (ad_type IN ('quick_reflection', 'deep_resonance', 'sacred_bridge_reveal', 'whatsapp_reveal', 'morning_harvest_unlock', 'daily_streak_boost')),
+    reward_points INT4 NOT NULL CHECK (reward_points > 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ad_reward_ledger_user ON public.ad_reward_ledger(user_id);
+ALTER TABLE public.ad_reward_ledger ENABLE ROW LEVEL SECURITY;
+
+-- 7. Table 6: public.processed_ad_transactions
+CREATE TABLE IF NOT EXISTS public.processed_ad_transactions (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    transaction_id VARCHAR(150) UNIQUE NOT NULL,
+    network VARCHAR(20) NOT NULL,
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    ad_type VARCHAR(30) NOT NULL,
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_processed_ad_user ON public.processed_ad_transactions(user_id);
+ALTER TABLE public.processed_ad_transactions ENABLE ROW LEVEL SECURITY;
+
+-- 8. Table 7: public.in_app_purchases
+CREATE TABLE IF NOT EXISTS public.in_app_purchases (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    transaction_reference VARCHAR(150) UNIQUE NOT NULL,
+    product_identifier VARCHAR(60) NOT NULL,
+    store VARCHAR(30) NOT NULL DEFAULT 'google_play' CHECK (store IN ('google_play', 'web_razorpay_india', 'web_stripe_global')),
+    currency VARCHAR(10) NOT NULL DEFAULT 'USD',
+    amount_gross NUMERIC(10,2) NOT NULL,
+    platform_fee NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+    amount_net NUMERIC(10,2) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'completed' CHECK (status IN ('pending', 'completed', 'refunded')),
+    purchased_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_iap_user_id ON public.in_app_purchases(user_id);
+ALTER TABLE public.in_app_purchases ENABLE ROW LEVEL SECURITY;
+
+-- 9. Table 8: public.pending_web_entitlements
+CREATE TABLE IF NOT EXISTS public.pending_web_entitlements (
+    id BIGSERIAL PRIMARY KEY,
+    order_id VARCHAR(150) UNIQUE NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    product_identifier VARCHAR(60) NOT NULL,
+    payment_reference VARCHAR(150),
+    amount_gross NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+    currency VARCHAR(10) NOT NULL DEFAULT 'INR',
+    status VARCHAR(30) NOT NULL DEFAULT 'paid_pending_claim' CHECK (status IN ('paid_pending_claim', 'claimed', 'refunded')),
+    claimed_by_user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    claimed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_web_email ON public.pending_web_entitlements(email) WHERE status = 'paid_pending_claim';
+ALTER TABLE public.pending_web_entitlements ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================================
+-- Tier 3: Cryptographic Revelation & Consent Rituals
+-- ============================================================================
+
+-- 10. Table 9: public.whatsapp_reveal_tokens
+CREATE TABLE IF NOT EXISTS public.whatsapp_reveal_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    match_id UUID UNIQUE NOT NULL REFERENCES public.matches(id) ON DELETE CASCADE,
+    user1_consent BOOLEAN NOT NULL DEFAULT FALSE,
+    user2_consent BOOLEAN NOT NULL DEFAULT FALSE,
+    user1_ads_count INT2 NOT NULL DEFAULT 0 CHECK (user1_ads_count <= 3),
+    user2_ads_count INT2 NOT NULL DEFAULT 0 CHECK (user2_ads_count <= 3),
+    is_unlocked BOOLEAN NOT NULL DEFAULT FALSE,
+    ephemeral_token VARCHAR(64),
+    expires_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.whatsapp_reveal_tokens ENABLE ROW LEVEL SECURITY;
+
+-- 11. Table 10: public.contact_reveal_tokens
+CREATE TABLE IF NOT EXISTS public.contact_reveal_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    match_id UUID UNIQUE NOT NULL REFERENCES public.matches(id) ON DELETE CASCADE,
+    user1_consent BOOLEAN NOT NULL DEFAULT FALSE,
+    user2_consent BOOLEAN NOT NULL DEFAULT FALSE,
+    user1_ads_count INT2 NOT NULL DEFAULT 0 CHECK (user1_ads_count <= 3),
+    user2_ads_count INT2 NOT NULL DEFAULT 0 CHECK (user2_ads_count <= 3),
+    is_unlocked BOOLEAN NOT NULL DEFAULT FALSE,
+    ephemeral_token VARCHAR(64),
+    expires_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.contact_reveal_tokens ENABLE ROW LEVEL SECURITY;
+
+-- 12. Table 11: public.photo_reveal_consents
+CREATE TABLE IF NOT EXISTS public.photo_reveal_consents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    requester_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    target_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_photo_reveal_pair UNIQUE (requester_id, target_id),
+    CONSTRAINT chk_photo_reveal_no_self CHECK (requester_id <> target_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_photo_reveal_target ON public.photo_reveal_consents(target_id) WHERE status = 'pending';
+ALTER TABLE public.photo_reveal_consents ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================================
+-- Tier 4: Anonymous Fast-Track Subsystem (Condition C1)
+-- ============================================================================
+
+-- 13. Table 12: public.blind_date_queue
+CREATE TABLE IF NOT EXISTS public.blind_date_queue (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID UNIQUE NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    gender VARCHAR(20) NOT NULL,
+    interested_in VARCHAR(100) NOT NULL,
+    age INT2 NOT NULL DEFAULT 24,
+    preferred_age_min INT2 NOT NULL DEFAULT 18,
+    preferred_age_max INT2 NOT NULL DEFAULT 45,
+    status VARCHAR(20) NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'paired', 'cancelled')),
+    is_fast_track BOOLEAN NOT NULL DEFAULT FALSE,
+    joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    paired_session_id UUID,
+    CONSTRAINT chk_blind_queue_age_range CHECK (preferred_age_min <= preferred_age_max)
+);
+
+CREATE INDEX IF NOT EXISTS idx_blind_queue_matching ON public.blind_date_queue(gender, status, joined_at) WHERE status = 'waiting';
+ALTER TABLE public.blind_date_queue ENABLE ROW LEVEL SECURITY;
+
+-- 14. Table 13: public.blind_date_sessions
+CREATE TABLE IF NOT EXISTS public.blind_date_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user1_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    user2_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'expired', 'revealed', 'passed', 'cancelled')),
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    user1_decision VARCHAR(15) NOT NULL DEFAULT 'pending' CHECK (user1_decision IN ('pending', 'resonate', 'pass')),
+    user2_decision VARCHAR(15) NOT NULL DEFAULT 'pending' CHECK (user2_decision IN ('pending', 'resonate', 'pass')),
+    icebreaker_prompt TEXT DEFAULT 'What is a quiet dream you hold close to your heart?',
+    match_id UUID REFERENCES public.matches(id) ON DELETE SET NULL,
+    extension_count INT2 NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_blind_session_no_self CHECK (user1_id <> user2_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_blind_session_user1 ON public.blind_date_sessions(user1_id);
+CREATE INDEX IF NOT EXISTS idx_blind_session_user2 ON public.blind_date_sessions(user2_id);
+ALTER TABLE public.blind_date_sessions ENABLE ROW LEVEL SECURITY;
+
+-- 15. Table 14: public.blind_date_messages
+CREATE TABLE IF NOT EXISTS public.blind_date_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID NOT NULL REFERENCES public.blind_date_sessions(id) ON DELETE CASCADE,
+    sender_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    recipient_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+    ciphertext TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_blind_msg_session ON public.blind_date_messages(session_id, created_at ASC);
+
+-- Trigger: Enforce sender belongs to the referenced blind date session
+CREATE OR REPLACE FUNCTION public.check_blind_date_message_sender()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM public.blind_date_sessions
+        WHERE id = NEW.session_id
+          AND (user1_id = NEW.sender_id OR user2_id = NEW.sender_id)
+    ) THEN
+        RAISE EXCEPTION 'Sender % is not a participant in blind date session %', NEW.sender_id, NEW.session_id;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger WHERE tgname = 'trg_check_blind_date_message_sender'
+    ) THEN
+        CREATE TRIGGER trg_check_blind_date_message_sender
+        BEFORE INSERT OR UPDATE ON public.blind_date_messages
+        FOR EACH ROW EXECUTE FUNCTION public.check_blind_date_message_sender();
+    END IF;
+END $$;
+
+ALTER TABLE public.blind_date_messages ENABLE ROW LEVEL SECURITY;
+
