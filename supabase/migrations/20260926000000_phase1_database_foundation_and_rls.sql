@@ -424,3 +424,161 @@ END $$;
 
 ALTER TABLE public.blind_date_messages ENABLE ROW LEVEL SECURITY;
 
+-- ============================================================================
+-- TIER 5: DPDP ACT 2023, IT RULES & LEGAL PROTECTION (Tables 15 to 21)
+-- ============================================================================
+
+-- 16. Table 15: public.underage_quarantine_registry
+CREATE TABLE IF NOT EXISTS public.underage_quarantine_registry (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    device_hash VARCHAR(64) UNIQUE NOT NULL,
+    attempted_dob DATE NOT NULL,
+    quarantine_until TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '180 days'),
+    attempt_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_quarantine_lookup ON public.underage_quarantine_registry(device_hash, quarantine_until);
+ALTER TABLE public.underage_quarantine_registry ENABLE ROW LEVEL SECURITY;
+
+-- 17. Table 16: public.data_nominees
+CREATE TABLE IF NOT EXISTS public.data_nominees (
+    user_id UUID PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
+    nominee_name VARCHAR(60) NOT NULL,
+    nominee_contact VARCHAR(30) NOT NULL,
+    relationship VARCHAR(30) NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.data_nominees ENABLE ROW LEVEL SECURITY;
+
+-- 18. Table 17: public.data_export_requests
+CREATE TABLE IF NOT EXISTS public.data_export_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    status VARCHAR(15) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'expired')),
+    export_url TEXT,
+    export_payload JSONB,
+    checksum_sha256 VARCHAR(64),
+    expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.data_export_requests ENABLE ROW LEVEL SECURITY;
+
+-- 19. Table 18: public.consent_audit_logs
+CREATE TABLE IF NOT EXISTS public.consent_audit_logs (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    consent_purpose_id VARCHAR(50) NOT NULL,
+    is_granted BOOLEAN NOT NULL DEFAULT TRUE,
+    ip_hash VARCHAR(64) NOT NULL,
+    installation_uuid VARCHAR(64) NOT NULL,
+    consented_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_consent_audit_user ON public.consent_audit_logs(user_id);
+ALTER TABLE public.consent_audit_logs ENABLE ROW LEVEL SECURITY;
+
+-- 20. Table 19: public.grievance_dossiers
+CREATE TABLE IF NOT EXISTS public.grievance_dossiers (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    dossier_reference_id VARCHAR(32) UNIQUE NOT NULL DEFAULT ('GRV-' || TO_CHAR(NOW(), 'YYYYMMDD') || '-' || UPPER(SUBSTRING(gen_random_uuid()::TEXT, 1, 6))),
+    reporter_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+    reported_user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+    violation_category VARCHAR(30) NOT NULL CHECK (violation_category IN ('harassment', 'explicit_content', 'impersonation', 'underage', 'offplatform_leak')),
+    evidence_text VARCHAR(500) NOT NULL DEFAULT '',
+    status VARCHAR(15) NOT NULL DEFAULT 'under_review' CHECK (status IN ('under_review', 'actioned', 'dismissed')),
+    acknowledgment_sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    statutory_resolution_due_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '15 days'),
+    resolution_summary TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    actioned_at TIMESTAMPTZ,
+    CONSTRAINT chk_grievance_no_self_report CHECK (reporter_id <> reported_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_grievance_status ON public.grievance_dossiers(status);
+ALTER TABLE public.grievance_dossiers ENABLE ROW LEVEL SECURITY;
+
+-- 21. Table 20: public.blocked_users
+CREATE TABLE IF NOT EXISTS public.blocked_users (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    blocker_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    blocked_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    reason VARCHAR(50) NOT NULL DEFAULT 'unspecified',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_block_pair UNIQUE (blocker_id, blocked_id),
+    CONSTRAINT chk_block_no_self CHECK (blocker_id <> blocked_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_blocked_users_lookup ON public.blocked_users(blocker_id, blocked_id);
+ALTER TABLE public.blocked_users ENABLE ROW LEVEL SECURITY;
+
+-- 22. Table 21: public.web_deletion_tokens
+CREATE TABLE IF NOT EXISTS public.web_deletion_tokens (
+    token VARCHAR(64) PRIMARY KEY,
+    email VARCHAR(255) NOT NULL,
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    auth_id UUID,
+    reason TEXT,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_web_deletion_email ON public.web_deletion_tokens(email);
+ALTER TABLE public.web_deletion_tokens ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================================
+-- TIER 6: ADMINISTRATION & TELEMETRY (Tables 22 to 24)
+-- ============================================================================
+
+-- 23. Table 22: public.admin_kyc_escalations
+CREATE TABLE IF NOT EXISTS public.admin_kyc_escalations (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id UUID UNIQUE NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    declared_dob DATE NOT NULL,
+    declared_age INT2 NOT NULL,
+    groq_match_score INT2 NOT NULL,
+    groq_reasoning VARCHAR(255) NOT NULL,
+    anchor_photo_url TEXT NOT NULL,
+    kyc_video_url TEXT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    reviewed_at TIMESTAMPTZ,
+    reviewed_by VARCHAR(80),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.admin_kyc_escalations ENABLE ROW LEVEL SECURITY;
+
+-- 24. Table 23: public.device_fcm_tokens
+CREATE TABLE IF NOT EXISTS public.device_fcm_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    token VARCHAR(512) UNIQUE NOT NULL,
+    platform VARCHAR(20) NOT NULL DEFAULT 'unknown',
+    installation_id VARCHAR(128),
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_user_fcm_token UNIQUE (user_id, token)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fcm_tokens_user ON public.device_fcm_tokens(user_id) WHERE active = TRUE;
+ALTER TABLE public.device_fcm_tokens ENABLE ROW LEVEL SECURITY;
+
+-- 25. Table 24: public.admin_audit_logs
+CREATE TABLE IF NOT EXISTS public.admin_audit_logs (
+    id BIGSERIAL PRIMARY KEY,
+    admin_email VARCHAR(120) NOT NULL,
+    action VARCHAR(100) NOT NULL,
+    target_type VARCHAR(50),
+    target_id VARCHAR(100),
+    details TEXT,
+    ip_address VARCHAR(50),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON public.admin_audit_logs(created_at DESC);
+ALTER TABLE public.admin_audit_logs ENABLE ROW LEVEL SECURITY;
+

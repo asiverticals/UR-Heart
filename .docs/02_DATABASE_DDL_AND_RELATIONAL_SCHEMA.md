@@ -608,8 +608,8 @@ SQL
 CREATE TABLE IF NOT EXISTS public.grievance_dossiers (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     dossier_reference_id VARCHAR(32) UNIQUE NOT NULL DEFAULT ('GRV-' || TO_CHAR(NOW(), 'YYYYMMDD') || '-' || UPPER(SUBSTRING(gen_random_uuid()::TEXT, 1, 6))),
-    reporter_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-    reported_user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    reporter_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+    reported_user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
     violation_category VARCHAR(30) NOT NULL CHECK (violation_category IN ('harassment', 'explicit_content', 'impersonation', 'underage', 'offplatform_leak')),
     evidence_text VARCHAR(500) NOT NULL DEFAULT '',
     status VARCHAR(15) NOT NULL DEFAULT 'under_review' CHECK (status IN ('under_review', 'actioned', 'dismissed')),
@@ -657,13 +657,15 @@ SQL
 
 CREATE TABLE IF NOT EXISTS public.web_deletion_tokens (
     token VARCHAR(64) PRIMARY KEY,
-    email VARCHAR(255) UNIQUE NOT NULL,
+    email VARCHAR(255) NOT NULL,
     user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     auth_id UUID,
     reason TEXT,
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_web_deletion_email ON public.web_deletion_tokens(email);
 
 MD
 
