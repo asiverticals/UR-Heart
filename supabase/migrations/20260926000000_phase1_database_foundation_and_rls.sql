@@ -201,7 +201,7 @@ ALTER TABLE public.processed_ad_transactions ENABLE ROW LEVEL SECURITY;
 -- 8. Table 7: public.in_app_purchases
 CREATE TABLE IF NOT EXISTS public.in_app_purchases (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
     transaction_reference VARCHAR(150) UNIQUE NOT NULL,
     product_identifier VARCHAR(60) NOT NULL,
     store VARCHAR(30) NOT NULL DEFAULT 'google_play' CHECK (store IN ('google_play', 'web_razorpay_india', 'web_stripe_global')),
@@ -209,8 +209,9 @@ CREATE TABLE IF NOT EXISTS public.in_app_purchases (
     amount_gross NUMERIC(10,2) NOT NULL,
     platform_fee NUMERIC(10,2) NOT NULL DEFAULT 0.00,
     amount_net NUMERIC(10,2) NOT NULL,
-    status VARCHAR(20) NOT NULL DEFAULT 'completed' CHECK (status IN ('pending', 'completed', 'refunded')),
-    purchased_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'refunded')),
+    purchased_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_iap_nonnegative_amounts CHECK (amount_gross >= 0 AND platform_fee >= 0 AND amount_net >= 0)
 );
 
 CREATE INDEX IF NOT EXISTS idx_iap_user_id ON public.in_app_purchases(user_id);
@@ -228,7 +229,8 @@ CREATE TABLE IF NOT EXISTS public.pending_web_entitlements (
     status VARCHAR(30) NOT NULL DEFAULT 'paid_pending_claim' CHECK (status IN ('paid_pending_claim', 'claimed', 'refunded')),
     claimed_by_user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    claimed_at TIMESTAMPTZ
+    claimed_at TIMESTAMPTZ,
+    CONSTRAINT chk_web_entitlement_nonnegative_amount CHECK (amount_gross >= 0)
 );
 
 CREATE INDEX IF NOT EXISTS idx_pending_web_email ON public.pending_web_entitlements(email) WHERE status = 'paid_pending_claim';
@@ -244,8 +246,8 @@ CREATE TABLE IF NOT EXISTS public.whatsapp_reveal_tokens (
     match_id UUID UNIQUE NOT NULL REFERENCES public.matches(id) ON DELETE CASCADE,
     user1_consent BOOLEAN NOT NULL DEFAULT FALSE,
     user2_consent BOOLEAN NOT NULL DEFAULT FALSE,
-    user1_ads_count INT2 NOT NULL DEFAULT 0 CHECK (user1_ads_count <= 3),
-    user2_ads_count INT2 NOT NULL DEFAULT 0 CHECK (user2_ads_count <= 3),
+    user1_ads_count INT2 NOT NULL DEFAULT 0 CHECK (user1_ads_count BETWEEN 0 AND 3),
+    user2_ads_count INT2 NOT NULL DEFAULT 0 CHECK (user2_ads_count BETWEEN 0 AND 3),
     is_unlocked BOOLEAN NOT NULL DEFAULT FALSE,
     ephemeral_token VARCHAR(64),
     expires_at TIMESTAMPTZ,
@@ -260,8 +262,8 @@ CREATE TABLE IF NOT EXISTS public.contact_reveal_tokens (
     match_id UUID UNIQUE NOT NULL REFERENCES public.matches(id) ON DELETE CASCADE,
     user1_consent BOOLEAN NOT NULL DEFAULT FALSE,
     user2_consent BOOLEAN NOT NULL DEFAULT FALSE,
-    user1_ads_count INT2 NOT NULL DEFAULT 0 CHECK (user1_ads_count <= 3),
-    user2_ads_count INT2 NOT NULL DEFAULT 0 CHECK (user2_ads_count <= 3),
+    user1_ads_count INT2 NOT NULL DEFAULT 0 CHECK (user1_ads_count BETWEEN 0 AND 3),
+    user2_ads_count INT2 NOT NULL DEFAULT 0 CHECK (user2_ads_count BETWEEN 0 AND 3),
     is_unlocked BOOLEAN NOT NULL DEFAULT FALSE,
     ephemeral_token VARCHAR(64),
     expires_at TIMESTAMPTZ,
@@ -302,7 +304,7 @@ CREATE TABLE IF NOT EXISTS public.blind_date_queue (
     is_fast_track BOOLEAN NOT NULL DEFAULT FALSE,
     joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     paired_session_id UUID,
-    CONSTRAINT chk_blind_queue_age_range CHECK (preferred_age_min <= preferred_age_max)
+    CONSTRAINT chk_blind_queue_age_range CHECK (preferred_age_min >= 18 AND preferred_age_min <= preferred_age_max)
 );
 
 CREATE INDEX IF NOT EXISTS idx_blind_queue_matching ON public.blind_date_queue(gender, status, joined_at) WHERE status = 'waiting';
