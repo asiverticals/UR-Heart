@@ -15,22 +15,32 @@ class ThemeState {
 /// Riverpod state notifier managing Sanctuary's bi-thematic switching and persistence.
 class ThemeController extends StateNotifier<ThemeState> {
   static const _prefKey = 'sanctuary_theme_dark_mode';
+  bool _userChanged = false;
 
   ThemeController() : super(const ThemeState(isDark: true)) {
     _loadPreference();
   }
 
   Future<void> _loadPreference() async {
-    final prefs = await SharedPreferences.getInstance();
-    final isDark = prefs.getBool(_prefKey) ?? true;
-    state = ThemeState(isDark: isDark);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_userChanged || !mounted) return;
+      state = ThemeState(isDark: prefs.getBool(_prefKey) ?? true);
+    } catch (_) {
+      // Retain default dark mode on storage failure
+    }
   }
 
   Future<void> toggleTheme() async {
+    _userChanged = true;
     final nextMode = !state.isDark;
     state = state.copyWith(isDark: nextMode);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_prefKey, nextMode);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefKey, nextMode);
+    } catch (_) {
+      // Storage error fallback
+    }
   }
 }
 

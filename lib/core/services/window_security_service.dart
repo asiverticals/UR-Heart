@@ -26,6 +26,8 @@ class WindowSecurityService {
           await channel.invokeMethod<bool>('enableSecureWindow');
         } on PlatformException catch (_) {
           // Channel fallback/ignored in non-native or testing environments
+        } on MissingPluginException catch (_) {
+          // Channel fallback/ignored when native plugin is unmocked or missing
         }
       }
     }
@@ -38,6 +40,8 @@ class WindowSecurityService {
         await channel.invokeMethod<bool>('disableSecureWindow');
       } on PlatformException catch (_) {
         // Channel fallback/ignored in non-native or testing environments
+      } on MissingPluginException catch (_) {
+        // Channel fallback/ignored when native plugin is unmocked or missing
       }
     }
   }

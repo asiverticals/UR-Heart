@@ -4,7 +4,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Riverpod provider for singleton secure session vault access.
 final secureSessionStorageProvider = Provider<SecureSessionStorage>((ref) {
-  return SecureSessionStorage();
+  final storage = SecureSessionStorage();
+  ref.onDispose(storage.dispose);
+  return storage;
 });
 
 /// Hardware Keystore Session Vault storing tokens under EncryptedSharedPreferences (Android Keystore AES-256 GCM).
@@ -82,30 +84,49 @@ class SecureSessionStorage {
 
   /// Persists authentic session tokens and user identifiers to encrypted storage.
   /// Serialized through FIFO queue to prevent race conditions with concurrent clearSession calls.
+  /// Automatically rolls back previously written keys if any subsequent key write fails.
   Future<void> persistSession({
     required String accessToken,
     required String refreshToken,
     required String userId,
     required String role,
   }) => _synchronized(() async {
-    await _storage.write(key: keyAuthToken, value: accessToken);
-    await _storage.write(key: keyRefreshToken, value: refreshToken);
-    await _storage.write(key: keyUserId, value: userId);
-    await _storage.write(key: keyUserRole, value: role);
-    _authController.add(true);
+    final writtenKeys = <String>[];
+    try {
+      await _storage.write(key: keyAuthToken, value: accessToken);
+      writtenKeys.add(keyAuthToken);
+      await _storage.write(key: keyRefreshToken, value: refreshToken);
+      writtenKeys.add(keyRefreshToken);
+      await _storage.write(key: keyUserId, value: userId);
+      writtenKeys.add(keyUserId);
+      await _storage.write(key: keyUserRole, value: role);
+      writtenKeys.add(keyUserRole);
+      if (!_authController.isClosed) _authController.add(true);
+    } catch (e) {
+      for (final key in writtenKeys) {
+        try {
+          await _storage.delete(key: key);
+        } catch (_) {}
+      }
+      rethrow;
+    }
   });
 
-  /// Reads JWT Bearer access token.
-  Future<String?> readAuthToken() => _storage.read(key: keyAuthToken);
+  /// Reads JWT Bearer access token serialized with pending writes.
+  Future<String?> readAuthToken() =>
+      _synchronized(() => _storage.read(key: keyAuthToken));
 
-  /// Reads long-lived refresh token.
-  Future<String?> readRefreshToken() => _storage.read(key: keyRefreshToken);
+  /// Reads long-lived refresh token serialized with pending writes.
+  Future<String?> readRefreshToken() =>
+      _synchronized(() => _storage.read(key: keyRefreshToken));
 
-  /// Reads authenticated seeker UUID.
-  Future<String?> readUserId() => _storage.read(key: keyUserId);
+  /// Reads authenticated seeker UUID serialized with pending writes.
+  Future<String?> readUserId() =>
+      _synchronized(() => _storage.read(key: keyUserId));
 
-  /// Reads seeker authorization role ('user', 'superadmin', etc.).
-  Future<String?> readUserRole() => _storage.read(key: keyUserRole);
+  /// Reads seeker authorization role ('user', 'superadmin', etc.) serialized with pending writes.
+  Future<String?> readUserRole() =>
+      _synchronized(() => _storage.read(key: keyUserRole));
 
   /// Wipes all sensitive session tokens and notifies subscribers of logout.
   /// Serialized through FIFO queue to prevent race conditions with concurrent persistSession calls.
@@ -114,7 +135,7 @@ class SecureSessionStorage {
     await _storage.delete(key: keyRefreshToken);
     await _storage.delete(key: keyUserId);
     await _storage.delete(key: keyUserRole);
-    _authController.add(false);
+    if (!_authController.isClosed) _authController.add(false);
   });
 
   /// Closes the internal broadcast controller when disposed.

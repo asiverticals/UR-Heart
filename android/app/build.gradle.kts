@@ -37,6 +37,8 @@ android {
                 storePassword = project.findProperty("MYAPP_RELEASE_STORE_PASSWORD") as String?
                 keyAlias = project.findProperty("MYAPP_RELEASE_KEY_ALIAS") as String?
                 keyPassword = project.findProperty("MYAPP_RELEASE_KEY_PASSWORD") as String?
+            } else if (gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }) {
+                throw GradleException("Release signing properties MYAPP_RELEASE_* are not configured")
             } else {
                 val debugConfig = getByName("debug")
                 storeFile = debugConfig.storeFile

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -72,6 +73,7 @@ void main() {
     final List<MethodCall> methodCalls = [];
 
     setUp(() {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
       methodCalls.clear();
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
@@ -87,6 +89,7 @@ void main() {
     });
 
     tearDown(() {
+      debugDefaultTargetPlatformOverride = null;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(WindowSecurityService.channel, null);
     });

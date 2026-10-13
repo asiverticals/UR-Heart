@@ -45,7 +45,6 @@ class SanctuaryGlassContainer extends StatelessWidget {
     Widget content = Container(
       width: width,
       height: height,
-      margin: margin,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(borderRadius),
         boxShadow: shadows ?? [
@@ -91,11 +90,15 @@ class SanctuaryGlassContainer extends StatelessWidget {
     );
 
     if (onTap != null) {
-      return GestureDetector(
+      content = GestureDetector(
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: content,
       );
+    }
+
+    if (margin != EdgeInsets.zero) {
+      return Padding(padding: margin, child: content);
     }
     return content;
   }
