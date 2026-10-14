@@ -24,6 +24,9 @@ class ProfileSetupState {
   final double uploadProgress;
   final bool isSubmitting;
   final String? errorMessage;
+  final bool isKycVerified;
+  final String? kycStatus;
+  final String? kycStatusMessage;
 
   const ProfileSetupState({
     this.photoUrls = const [null, null, null, null, null],
@@ -42,6 +45,9 @@ class ProfileSetupState {
     this.uploadProgress = 0.0,
     this.isSubmitting = false,
     this.errorMessage,
+    this.isKycVerified = false,
+    this.kycStatus,
+    this.kycStatusMessage,
   });
 
   ProfileSetupState copyWith({
@@ -61,6 +67,9 @@ class ProfileSetupState {
     double? uploadProgress,
     bool? isSubmitting,
     String? errorMessage,
+    bool? isKycVerified,
+    Object? kycStatus = _unset,
+    Object? kycStatusMessage = _unset,
   }) {
     return ProfileSetupState(
       photoUrls: photoUrls ?? this.photoUrls,
@@ -79,6 +88,9 @@ class ProfileSetupState {
       uploadProgress: uploadProgress ?? this.uploadProgress,
       isSubmitting: isSubmitting ?? this.isSubmitting,
       errorMessage: errorMessage,
+      isKycVerified: isKycVerified ?? this.isKycVerified,
+      kycStatus: identical(kycStatus, _unset) ? this.kycStatus : kycStatus as String?,
+      kycStatusMessage: identical(kycStatusMessage, _unset) ? this.kycStatusMessage : kycStatusMessage as String?,
     );
   }
 }
@@ -354,6 +366,70 @@ class ProfileSetupController extends StateNotifier<ProfileSetupState> {
       return false;
     } catch (e) {
       state = state.copyWith(isSubmitting: false, errorMessage: e.toString());
+      return false;
+    }
+  }
+
+  /// Uploads live selfie frame to ephemeral R2 path and triggers Groq facial liveness evaluation.
+  Future<bool> submitKycLiveness(List<int> frameBytes) async {
+    state = state.copyWith(isUploadingMedia: true, errorMessage: null);
+
+    try {
+      // 1. Obtain ephemeral upload presigned URL
+      final presignedRes = await _client.post('/api/v1/kyc/presigned-upload');
+      final data = presignedRes['data'] ?? presignedRes;
+      final uploadUrl = data['upload_url'] as String;
+      final objectKey = data['object_key'] as String;
+
+      // 2. Direct binary PUT to Cloudflare R2
+      final putResponse = await _rawHttpClient.put(
+        Uri.parse(uploadUrl),
+        headers: {'Content-Type': 'image/webp'},
+        body: frameBytes,
+      );
+
+      if (putResponse.statusCode != 200 && putResponse.statusCode != 204) {
+        state = state.copyWith(
+          isUploadingMedia: false,
+          errorMessage: 'R2 rejected ephemeral selfie upload with HTTP ${putResponse.statusCode}.',
+        );
+        return false;
+      }
+
+      // 3. Trigger Groq AI liveness verification
+      final verifyRes = await _client.post(
+        '/api/v1/kyc/verify-liveness',
+        body: {'object_key': objectKey},
+      );
+      final verifyData = verifyRes['data'] ?? verifyRes;
+      final status = verifyData['status'] as String? ?? 'rejected';
+      final message = verifyData['message'] as String? ?? '';
+
+      final isApproved = status == 'approved';
+      state = state.copyWith(
+        isUploadingMedia: false,
+        isKycVerified: isApproved,
+        kycStatus: status,
+        kycStatusMessage: message,
+      );
+      return isApproved;
+    } on SanctuaryClientException catch (e) {
+      state = state.copyWith(
+        isUploadingMedia: false,
+        isKycVerified: false,
+        kycStatus: 'rejected',
+        kycStatusMessage: e.message,
+        errorMessage: e.message,
+      );
+      return false;
+    } catch (e) {
+      state = state.copyWith(
+        isUploadingMedia: false,
+        isKycVerified: false,
+        kycStatus: 'rejected',
+        kycStatusMessage: e.toString(),
+        errorMessage: e.toString(),
+      );
       return false;
     }
   }

@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from .endpoints import auth, health, media
+from .endpoints import auth, health, kyc, media
 
 api_router = APIRouter()
 
@@ -11,4 +11,7 @@ api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 
 # 3. Cloudflare R2 Media Storage
 api_router.include_router(media.router, prefix="/media", tags=["MediaStorage"])
+
+# 4. Biometric KYC Verification
+api_router.include_router(kyc.router, prefix="/kyc", tags=["KYCVerification"])
 

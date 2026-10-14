@@ -90,6 +90,23 @@ class CloudflareR2StorageService:
         domain = self.public_domain or "https://media.urheart.app"
         return f"{domain.rstrip('/')}/{key.lstrip('/')}"
 
+    def get_object_bytes(self, key: str) -> bytes:
+        """Retrieves raw object bytes from Cloudflare R2 bucket."""
+        self.validate_credentials()
+        response = self.s3_client.get_object(Bucket=self.bucket_name, Key=key)
+        return response["Body"].read()
+
+    def put_object_bytes(self, key: str, data: bytes, content_type: str = "image/webp") -> bool:
+        """Stores binary bytes directly into Cloudflare R2 bucket."""
+        self.validate_credentials()
+        self.s3_client.put_object(
+            Bucket=self.bucket_name,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+        )
+        return True
+
     def delete_object(self, key: str) -> bool:
         """Deletes a single object from Cloudflare R2."""
         self.validate_credentials()
