@@ -63,7 +63,9 @@ class WindowSecurityService {
     // Best-effort mitigation: wipe clipboard on PrintScreen key event.
     // Note: This does not and cannot prevent OS-level screen capture in a browser.
     if (event.logicalKey == LogicalKeyboardKey.printScreen) {
-      Clipboard.setData(const ClipboardData(text: ''));
+      if (event is KeyDownEvent) {
+        Clipboard.setData(const ClipboardData(text: '')).catchError((_) {});
+      }
       return true;
     }
 

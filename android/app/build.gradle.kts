@@ -30,28 +30,37 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            val keystoreFile = project.findProperty("MYAPP_RELEASE_STORE_FILE") as String?
-            if (keystoreFile != null && file(keystoreFile).exists()) {
+        val keystoreFile = project.findProperty("MYAPP_RELEASE_STORE_FILE") as String?
+        if (keystoreFile != null && file(keystoreFile).exists()) {
+            create("release") {
                 storeFile = file(keystoreFile)
                 storePassword = project.findProperty("MYAPP_RELEASE_STORE_PASSWORD") as String?
                 keyAlias = project.findProperty("MYAPP_RELEASE_KEY_ALIAS") as String?
                 keyPassword = project.findProperty("MYAPP_RELEASE_KEY_PASSWORD") as String?
-            } else if (gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }) {
-                throw GradleException("Release signing properties MYAPP_RELEASE_* are not configured")
-            } else {
-                val debugConfig = getByName("debug")
-                storeFile = debugConfig.storeFile
-                storePassword = debugConfig.storePassword
-                keyAlias = debugConfig.keyAlias
-                keyPassword = debugConfig.keyPassword
             }
         }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            signingConfigs.findByName("release")?.let {
+                signingConfig = it
+            }
+        }
+    }
+
+    gradle.taskGraph.whenReady {
+        val isReleaseArtifactTask = allTasks.any { task ->
+            val name = task.name
+            name.contains("Release", ignoreCase = true) &&
+                (name.contains("assemble", ignoreCase = true) ||
+                 name.contains("bundle", ignoreCase = true) ||
+                 name.contains("package", ignoreCase = true))
+        }
+        if (isReleaseArtifactTask && signingConfigs.findByName("release") == null) {
+            throw GradleException(
+                "Release artifact task requested, but MYAPP_RELEASE_STORE_FILE is missing or does not point to an existing keystore file. Configure release signing properties before building release."
+            )
         }
     }
 }

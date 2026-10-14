@@ -35,8 +35,8 @@ class GlassVeilWidget extends StatelessWidget {
         // Raw image underneath
         underlyingImage,
 
-        // 35px Frosted Gaussian Veil or Opaque Privacy Fallback if backdrop filter disabled
-        if (!GlassPerformanceController.enableLiveBackdropFilter)
+        // 35px Frosted Gaussian Veil or Opaque Privacy Fallback if blur below privacy threshold
+        if (resolvedSigma < 20.0)
           Container(
             color: isDark ? const Color(0xFF181B20) : const Color(0xFFF9F6F0),
             child: Center(

@@ -116,6 +116,12 @@ class SecureSessionStorage {
   Future<String?> readAuthToken() =>
       _synchronized(() => _storage.read(key: keyAuthToken));
 
+  /// Saves updated JWT Bearer access token serialized with pending writes.
+  Future<void> saveAuthToken(String token) => _synchronized(() async {
+    await _storage.write(key: keyAuthToken, value: token);
+    if (!_authController.isClosed) _authController.add(true);
+  });
+
   /// Reads long-lived refresh token serialized with pending writes.
   Future<String?> readRefreshToken() =>
       _synchronized(() => _storage.read(key: keyRefreshToken));
@@ -131,11 +137,22 @@ class SecureSessionStorage {
   /// Wipes all sensitive session tokens and notifies subscribers of logout.
   /// Serialized through FIFO queue to prevent race conditions with concurrent persistSession calls.
   Future<void> clearSession() => _synchronized(() async {
-    await _storage.delete(key: keyAuthToken);
-    await _storage.delete(key: keyRefreshToken);
-    await _storage.delete(key: keyUserId);
-    await _storage.delete(key: keyUserRole);
-    if (!_authController.isClosed) _authController.add(false);
+    Object? firstError;
+    var authTokenDeleted = false;
+    for (final key in [keyAuthToken, keyRefreshToken, keyUserId, keyUserRole]) {
+      try {
+        await _storage.delete(key: key);
+        if (key == keyAuthToken) {
+          authTokenDeleted = true;
+        }
+      } catch (e) {
+        firstError ??= e;
+      }
+    }
+    if (authTokenDeleted && !_authController.isClosed) {
+      _authController.add(false);
+    }
+    if (firstError != null) throw firstError;
   });
 
   /// Closes the internal broadcast controller when disposed.
