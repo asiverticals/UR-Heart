@@ -509,5 +509,46 @@ void main() {
       expect(find.text('Continue with Google'), findsOneWidget);
       expect(find.text('Send Sacred Link'), findsOneWidget);
     });
+
+    test('AuthController purges user_dob and rejects verification if DOB changes during storage write', () async {
+      final fakeStorage = TestSecureStorage();
+      final sessionStorage = SecureSessionStorage(storage: fakeStorage);
+      final fakeHttp = FakeHttpClient();
+
+      fakeHttp.onPost = (url, headers, body) async {
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {'eligible': true, 'age': 25},
+          }),
+          200,
+        );
+      };
+
+      final client = SanctuaryHttpClient(sessionStorage, client: fakeHttp);
+      final fpService = DeviceFingerprintService(sessionStorage);
+      final controller = AuthController(
+        client: client,
+        storage: sessionStorage,
+        fingerprintService: fpService,
+      );
+
+      // Select initial adult DOB
+      controller.updateDob(DateTime(2000, 1, 1), referenceDate: DateTime(2026, 6, 15));
+
+      // Start verification
+      final verificationFuture = controller.verifyAgeAndRegisterIntent();
+
+      // Immediately change DOB to underage date while verification/storage write is processing
+      controller.updateDob(DateTime(2015, 5, 20), referenceDate: DateTime(2026, 6, 15));
+
+      final result = await verificationFuture;
+
+      // Stale verification must be discarded and user_dob must not remain stored
+      expect(result, isFalse);
+      expect(await sessionStorage.readCustomKey('user_dob'), isNull);
+      expect(controller.state.isEligible, isFalse);
+      expect(controller.state.isServerApproved, isFalse);
+    });
   });
 }

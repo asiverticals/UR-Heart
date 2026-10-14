@@ -130,6 +130,18 @@ class AuthController extends StateNotifier<AuthState> {
       }
 
       final isEligible = response['data']?['eligible'] == true || response['eligible'] == true;
+      if (isEligible) {
+        await _storage.writeCustomKey('user_dob', formattedDob);
+      }
+
+      // Recheck generation and selected DOB after storage write to prevent race conditions
+      if (generation != _verificationGeneration || state.selectedDob != dob) {
+        if (isEligible) {
+          await _storage.deleteCustomKey('user_dob');
+        }
+        return false;
+      }
+
       state = state.copyWith(
         isLoading: false,
         isEligible: isEligible,

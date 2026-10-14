@@ -142,6 +142,10 @@ class SecureSessionStorage {
   Future<void> writeCustomKey(String key, String value) =>
       _synchronized(() => _storage.write(key: key, value: value));
 
+  /// Deletes custom key serialized with pending writes.
+  Future<void> deleteCustomKey(String key) =>
+      _synchronized(() => _storage.delete(key: key));
+
   /// Wipes all sensitive session tokens and notifies subscribers of logout.
   /// Serialized through FIFO queue to prevent race conditions with concurrent persistSession calls.
   Future<void> clearSession() => _synchronized(() async {
