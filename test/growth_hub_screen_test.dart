@@ -88,6 +88,7 @@ void main() {
     SanctuaryBillingService? billingService,
     void Function(StoreProduct)? onProductTap,
     VoidCallback? onAdHarvestTap,
+    void Function(String, String, void Function(String))? onWatchRewardedAd,
   }) {
     final fakeService = billingService ?? FakeBillingService();
 
@@ -106,6 +107,7 @@ void main() {
         home: GrowthHubScreen(
           onProductTap: onProductTap,
           onAdHarvestTap: onAdHarvestTap,
+          onWatchRewardedAd: onWatchRewardedAd,
         ),
       ),
     );
@@ -208,6 +210,49 @@ void main() {
       expect(selectedProduct, isNotNull);
       expect(selectedProduct!.id, 'direct_letter_single');
       expect(selectedProduct!.inrPrice, 29.0);
+    },
+  );
+
+  testWidgets(
+    'Test 4: Tapping ad trigger invokes ad display without claiming reward prematurely, and claims reward only via onUserEarnedReward callback',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      bool adHarvestTapped = false;
+      String? watchedAdType;
+      void Function(String)? rewardCallback;
+
+      await tester.pumpWidget(buildTestApp(
+        onAdHarvestTap: () {
+          adHarvestTapped = true;
+        },
+        onWatchRewardedAd: (adType, network, onUserEarnedReward) {
+          watchedAdType = adType;
+          rewardCallback = onUserEarnedReward;
+        },
+      ));
+      await tester.pumpAndSettle();
+
+      // Tap on the Quick Reflection ad trigger
+      final adCard = find.text('Quick Reflection');
+      expect(adCard, findsOneWidget);
+
+      await tester.tap(adCard);
+      await tester.pumpAndSettle();
+
+      // Ad display must have been triggered
+      expect(adHarvestTapped, isTrue);
+      expect(watchedAdType, 'quick_reflection');
+      expect(rewardCallback, isNotNull);
+
+      // Now simulate user completing the video and SDK callback invoking reward
+      rewardCallback!('ssv_tx_verified_999');
+      await tester.pumpAndSettle();
     },
   );
 }

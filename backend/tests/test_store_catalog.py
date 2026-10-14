@@ -148,20 +148,24 @@ async def test_provision_user_entitlements(db_session, make_user):
     assert user.reveal_tokens_count == 2
 
     # 4. Super like pack 3
-    await billing_entitlement_service.provision_user_entitlements(
+    r_sl = await billing_entitlement_service.provision_user_entitlements(
         user=user,
         product_identifier="super_like_pack_3",
         session=db_session,
     )
-    assert user.reward_balance == 3
+    assert user.super_likes_count == 3
+    assert r_sl["super_likes_count"] == 3
+    assert user.reward_balance == 0
 
     # 5. Sacred bridge instant
-    await billing_entitlement_service.provision_user_entitlements(
+    r_br = await billing_entitlement_service.provision_user_entitlements(
         user=user,
         product_identifier="sacred_bridge_instant",
         session=db_session,
     )
-    assert user.reward_balance == 4
+    assert user.instant_bridge_passes == 1
+    assert r_br["instant_bridge_passes"] == 1
+    assert user.reward_balance == 0
 
     # 6. Sovereign Pass Weekly
     r_pass = await billing_entitlement_service.provision_user_entitlements(
@@ -205,3 +209,37 @@ async def test_provision_user_entitlements(db_session, make_user):
         )
     assert exc_info.value.status_code == 400
     assert exc_info.value.error_code == "INVALID_PRODUCT"
+
+@pytest.mark.asyncio
+async def test_pass_renewal_preserves_tier_and_extends_duration(db_session, make_user):
+    """Test 5: Purchasing a weekly pass while holding an active kindred pass does not downgrade tier and extends duration."""
+    user = make_user(
+        full_name="Kindred Seeker",
+        is_profile_completed=True,
+        subscription_tier="free",
+    )
+    db_session.add(user)
+    await db_session.commit()
+
+    # 1. Purchase 90-day Kindred pass
+    await billing_entitlement_service.provision_user_entitlements(
+        user=user,
+        product_identifier="pass_sovereign_quarter",
+        session=db_session,
+    )
+    assert user.subscription_tier == "kindred"
+    exp1 = user.subscription_expires_at
+
+    # 2. Purchase weekly pass (normally 'spark' and 7 days)
+    r2 = await billing_entitlement_service.provision_user_entitlements(
+        user=user,
+        product_identifier="pass_sovereign_weekly",
+        session=db_session,
+    )
+    # Tier must remain 'kindred' (not downgraded to 'spark')
+    assert user.subscription_tier == "kindred"
+    assert r2["subscription_tier"] == "kindred"
+    # Expiration must be extended by 7 days beyond exp1
+    assert user.subscription_expires_at > exp1
+    diff = user.subscription_expires_at - exp1
+    assert round(diff.total_seconds() / 86400) == 7

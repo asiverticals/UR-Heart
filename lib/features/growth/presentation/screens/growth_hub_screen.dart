@@ -15,11 +15,17 @@ import '../widgets/streak_gauge_widget.dart';
 class GrowthHubScreen extends ConsumerStatefulWidget {
   final void Function(StoreProduct product)? onProductTap;
   final VoidCallback? onAdHarvestTap;
+  final void Function(
+    String adType,
+    String network,
+    void Function(String ssvTransactionId) onUserEarnedReward,
+  )? onWatchRewardedAd;
 
   const GrowthHubScreen({
     super.key,
     this.onProductTap,
     this.onAdHarvestTap,
+    this.onWatchRewardedAd,
   });
 
   @override
@@ -379,11 +385,24 @@ class _GrowthHubScreenState extends ConsumerState<GrowthHubScreen> {
         return InkWell(
           onTap: () {
             widget.onAdHarvestTap?.call();
-            ref.read(growthHubControllerProvider.notifier).claimAdReward(
-                  transactionId: 'ad_tx_${DateTime.now().millisecondsSinceEpoch}',
-                  adType: item['type'] as String,
-                  network: 'admob',
-                );
+            // Anti-Fraud Invariant: Never claim an ad reward on client button tap.
+            // Rewards are claimed strictly from the rewarded ad SDK callback
+            // using the network-verified SSV transaction ID.
+            if (widget.onWatchRewardedAd != null) {
+              widget.onWatchRewardedAd!(
+                item['type'] as String,
+                'admob',
+                (networkTransactionId) {
+                  if (mounted) {
+                    ref.read(growthHubControllerProvider.notifier).claimAdReward(
+                          transactionId: networkTransactionId,
+                          adType: item['type'] as String,
+                          network: 'admob',
+                        );
+                  }
+                },
+              );
+            }
           },
           borderRadius: BorderRadius.circular(16),
           child: SanctuaryGlassContainer(

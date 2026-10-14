@@ -37,6 +37,8 @@ async def get_store_balances(
             swipes_remaining=current_user.swipes_remaining or 0,
             direct_letters_count=current_user.direct_letters_count or 0,
             boost_points=current_user.boost_points or 0,
+            super_likes_count=getattr(current_user, "super_likes_count", 0) or 0,
+            instant_bridge_passes=getattr(current_user, "instant_bridge_passes", 0) or 0,
             subscription_tier=current_user.subscription_tier or "free",
             is_ad_free=current_user.is_ad_free or False,
         ),

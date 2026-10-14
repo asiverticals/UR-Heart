@@ -87,15 +87,45 @@ STATIC_PRODUCT_CATALOG: List[Dict[str, Any]] = [
     {
         "id": "pass_sovereign_quarter",
         "title": "Sovereign Pass (90 Days)",
-        "description": "Complete access + AI Wingman priority for 90 days.",
+        "description": "Complete access, +75 Direct Letters, AI Wingman priority for 90 days.",
         "product_class": "pass",
         "inr_price": 2499.0,
         "usd_price": 49.99,
         "currency_symbol": "₹",
         "badge_label": "Best Value",
-        "entitlement": "Complete access + AI Wingman priority",
+        "entitlement": "Complete access, +75 Direct Letters, AI Wingman priority",
     },
 ]
+
+TIER_RANKS: Dict[str, int] = {
+    "free": 0,
+    "spark": 1,
+    "flame": 2,
+    "kindred": 3,
+    "lifetime": 4,
+}
+
+def _resolve_subscription(user: User, pass_tier: str, duration_days: int, now: datetime) -> None:
+    """Calculates non-downgrading subscription tier and cumulative duration extension."""
+    cur_exp = user.subscription_expires_at
+    if cur_exp is not None and cur_exp.tzinfo is None:
+        cur_exp = cur_exp.replace(tzinfo=timezone.utc)
+
+    is_currently_active = cur_exp is not None and cur_exp > now
+    base_time = cur_exp if is_currently_active else now
+
+    current_rank = TIER_RANKS.get(user.subscription_tier or "free", 0)
+    new_rank = TIER_RANKS.get(pass_tier, 0)
+
+    # Preserve higher tier if current active subscription has a higher rank
+    if is_currently_active and current_rank > new_rank:
+        pass
+    else:
+        user.subscription_tier = pass_tier
+
+    user.subscription_expires_at = base_time + timedelta(days=duration_days)
+    user.is_ad_free = True
+    user.swipes_remaining = 999
 
 class BillingEntitlementService:
     """Sovereign Store Catalog & atomic entitlement provisioning engine governed by Condition C2."""
@@ -132,31 +162,22 @@ class BillingEntitlementService:
         elif product_identifier == "profile_unlock_single":
             user.reveal_tokens_count = (user.reveal_tokens_count or 0) + 1
         elif product_identifier == "super_like_pack_3":
-            user.reward_balance = (user.reward_balance or 0) + 3
+            user.super_likes_count = (getattr(user, "super_likes_count", 0) or 0) + 3
         elif product_identifier == "spotlight_boost_24h":
             user.boost_points = (user.boost_points or 0) + 100
         elif product_identifier == "sacred_bridge_instant":
-            user.reward_balance = (user.reward_balance or 0) + 1
+            user.instant_bridge_passes = (getattr(user, "instant_bridge_passes", 0) or 0) + 1
         elif product_identifier == "pass_sovereign_weekly":
-            user.subscription_tier = "spark"
-            user.is_ad_free = True
-            user.swipes_remaining = 999
+            _resolve_subscription(user, "spark", 7, now)
             user.direct_letters_count = (user.direct_letters_count or 0) + 5
-            user.subscription_expires_at = now + timedelta(days=7)
         elif product_identifier == "pass_sovereign_monthly":
-            user.subscription_tier = "flame"
-            user.is_ad_free = True
-            user.swipes_remaining = 999
+            _resolve_subscription(user, "flame", 30, now)
             user.direct_letters_count = (user.direct_letters_count or 0) + 25
             user.is_voice_verified = True
-            user.subscription_expires_at = now + timedelta(days=30)
         elif product_identifier == "pass_sovereign_quarter":
-            user.subscription_tier = "kindred"
-            user.is_ad_free = True
-            user.swipes_remaining = 999
+            _resolve_subscription(user, "kindred", 90, now)
             user.direct_letters_count = (user.direct_letters_count or 0) + 75
             user.is_voice_verified = True
-            user.subscription_expires_at = now + timedelta(days=90)
         else:
             raise SanctuaryException(
                 error_code="INVALID_PRODUCT",
@@ -173,8 +194,11 @@ class BillingEntitlementService:
             "provisioned": True,
             "direct_letters_count": user.direct_letters_count,
             "boost_points": user.boost_points,
+            "super_likes_count": getattr(user, "super_likes_count", 0),
+            "instant_bridge_passes": getattr(user, "instant_bridge_passes", 0),
             "swipes_remaining": user.swipes_remaining,
             "subscription_tier": user.subscription_tier,
+            "subscription_expires_at": user.subscription_expires_at.isoformat() if user.subscription_expires_at else None,
             "is_ad_free": user.is_ad_free,
             "reward_balance": user.reward_balance,
         }

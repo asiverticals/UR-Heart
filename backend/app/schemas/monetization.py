@@ -80,5 +80,7 @@ class StoreBalancesResponse(BaseModel):
     swipes_remaining: int = Field(25, description="Available discovery swipe balance")
     direct_letters_count: int = Field(1, description="Intentional direct letters balance")
     boost_points: int = Field(0, description="Discovery boost priority score")
+    super_likes_count: int = Field(0, description="Super likes balance")
+    instant_bridge_passes: int = Field(0, description="Instant contact bridge passes balance")
     subscription_tier: str = Field("free", description="Active membership tier")
     is_ad_free: bool = Field(False, description="Whether seeker enjoys ad-free experience")

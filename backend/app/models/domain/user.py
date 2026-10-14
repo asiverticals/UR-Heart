@@ -64,6 +64,8 @@ class User(Base, TimestampMixin):
     reward_balance: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     swipes_remaining: Mapped[int] = mapped_column(SmallInteger, default=25, server_default="25", nullable=False)
     direct_letters_count: Mapped[int] = mapped_column(SmallInteger, default=1, server_default="1", nullable=False)
+    super_likes_count: Mapped[int] = mapped_column(SmallInteger, default=0, server_default="0", nullable=False)
+    instant_bridge_passes: Mapped[int] = mapped_column(SmallInteger, default=0, server_default="0", nullable=False)
     last_installation_uuid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     referral_code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     kyc_status: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
