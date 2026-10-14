@@ -134,6 +134,14 @@ class SecureSessionStorage {
   Future<String?> readUserRole() =>
       _synchronized(() => _storage.read(key: keyUserRole));
 
+  /// Reads custom key value serialized with pending writes.
+  Future<String?> readCustomKey(String key) =>
+      _synchronized(() => _storage.read(key: key));
+
+  /// Writes custom key value serialized with pending writes.
+  Future<void> writeCustomKey(String key, String value) =>
+      _synchronized(() => _storage.write(key: key, value: value));
+
   /// Wipes all sensitive session tokens and notifies subscribers of logout.
   /// Serialized through FIFO queue to prevent race conditions with concurrent persistSession calls.
   Future<void> clearSession() => _synchronized(() async {
