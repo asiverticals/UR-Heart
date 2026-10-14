@@ -102,6 +102,7 @@ class ProfilePublicResponse(BaseModel):
     voice_spark_prompt: Optional[str] = None
     voice_spark_duration: Decimal = Decimal("7.0")
     is_voice_verified: bool = False
+    distance_km: Optional[float] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -137,5 +138,6 @@ class ProfilePublicResponse(BaseModel):
                 "voice_spark_prompt": getattr(data, "voice_spark_prompt", None),
                 "voice_spark_duration": getattr(data, "voice_spark_duration", None) or Decimal("7.0"),
                 "is_voice_verified": getattr(data, "is_voice_verified", None) or False,
+                "distance_km": getattr(data, "distance_km", None),
             }
         return data

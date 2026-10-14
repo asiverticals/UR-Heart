@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from .endpoints import auth, health, kyc, media
+from .endpoints import auth, feed, health, kyc, media
 
 api_router = APIRouter()
 
@@ -14,4 +14,7 @@ api_router.include_router(media.router, prefix="/media", tags=["MediaStorage"])
 
 # 4. Biometric KYC Verification
 api_router.include_router(kyc.router, prefix="/kyc", tags=["KYCVerification"])
+
+# 5. Discovery Feed & Swipe Interactions
+api_router.include_router(feed.router, prefix="/feed", tags=["DiscoveryFeed"])
 

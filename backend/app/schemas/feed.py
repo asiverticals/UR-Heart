@@ -1,6 +1,8 @@
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
+
+from .profile import ProfilePublicResponse
 
 SwipeAction = Literal["like", "pass", "superlike"]
 
@@ -19,6 +21,21 @@ class SwipeResponse(BaseModel):
     is_match: bool = Field(..., description="True if a bilateral mutual match was ignited")
     match_id: Optional[UUID] = Field(None, description="Ignited match UUID if mutual like occurred")
     swipes_remaining: int = Field(..., description="Remaining daily quota balance")
+
+class DiscoveryFeedResponse(BaseModel):
+    """Discovery deck feed payload with fuzzed profile cards and quota balance."""
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    profiles: List[ProfilePublicResponse] = Field(..., description="Candidate seeker profiles matching self-exclusion perimeter")
+    swipes_remaining: int = Field(..., description="Current available swipe quota")
+
+class SwipesRemainingResponse(BaseModel):
+    """Daily swipe quota, active mindful streak, and refresh countdown."""
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    swipes_remaining: int = Field(..., description="Available swipes remaining today")
+    streak_count: int = Field(..., description="Active mindfulness day streak")
+    seconds_until_refresh: int = Field(..., description="Seconds remaining until daily midnight reset")
 
 class PhotoRevealRequest(BaseModel):
     """Request to initiate unmasking of a blurred photo veil."""

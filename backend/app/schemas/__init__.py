@@ -18,6 +18,8 @@ from .feed import (
     SwipeAction,
     SwipeRequest,
     SwipeResponse,
+    DiscoveryFeedResponse,
+    SwipesRemainingResponse,
     PhotoRevealRequest,
     PhotoRevealResponse,
 )
@@ -73,6 +75,8 @@ __all__ = [
     "SwipeAction",
     "SwipeRequest",
     "SwipeResponse",
+    "DiscoveryFeedResponse",
+    "SwipesRemainingResponse",
     "PhotoRevealRequest",
     "PhotoRevealResponse",
     # Chat
