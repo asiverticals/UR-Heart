@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from .endpoints import auth, feed, health, kyc, media
+from .endpoints import auth, feed, health, kyc, media, revelation
 
 api_router = APIRouter()
 
@@ -17,4 +17,7 @@ api_router.include_router(kyc.router, prefix="/kyc", tags=["KYCVerification"])
 
 # 5. Discovery Feed & Swipe Interactions
 api_router.include_router(feed.router, prefix="/feed", tags=["DiscoveryFeed"])
+
+# 6. Revelation & Photo Veil Handshake
+api_router.include_router(revelation.router, prefix="/revelation", tags=["Revelation"])
 

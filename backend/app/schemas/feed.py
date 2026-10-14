@@ -37,15 +37,10 @@ class SwipesRemainingResponse(BaseModel):
     streak_count: int = Field(..., description="Active mindfulness day streak")
     seconds_until_refresh: int = Field(..., description="Seconds remaining until daily midnight reset")
 
-class PhotoRevealRequest(BaseModel):
-    """Request to initiate unmasking of a blurred photo veil."""
-    model_config = ConfigDict(extra="forbid")
-
-    target_id: UUID = Field(..., description="Seeker whose photo veil unmasking is requested")
-
-class PhotoRevealResponse(BaseModel):
-    """Photo veil unmasking ritual consent status."""
-    model_config = ConfigDict(from_attributes=True, extra="forbid")
-
-    target_id: UUID
-    status: Literal["pending", "accepted", "declined"]
+from .revelation import (
+    PhotoRevealRequest,
+    PhotoRevealResponse,
+    PhotoRevealRespondRequest,
+    PhotoRevealStatusResponse,
+    PhotoRevealUnlockPerkRequest,
+)

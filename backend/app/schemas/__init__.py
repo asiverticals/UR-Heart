@@ -22,6 +22,9 @@ from .feed import (
     SwipesRemainingResponse,
     PhotoRevealRequest,
     PhotoRevealResponse,
+    PhotoRevealRespondRequest,
+    PhotoRevealStatusResponse,
+    PhotoRevealUnlockPerkRequest,
 )
 from .chat import (
     DialogueMessageSend,
@@ -79,6 +82,9 @@ __all__ = [
     "SwipesRemainingResponse",
     "PhotoRevealRequest",
     "PhotoRevealResponse",
+    "PhotoRevealRespondRequest",
+    "PhotoRevealStatusResponse",
+    "PhotoRevealUnlockPerkRequest",
     # Chat
     "DialogueMessageSend",
     "MessageItemResponse",

@@ -1,3 +1,3 @@
-from . import auth, feed, health, kyc, media
+from . import auth, feed, health, kyc, media, revelation
 
-__all__ = ["auth", "feed", "health", "kyc", "media"]
+__all__ = ["auth", "feed", "health", "kyc", "media", "revelation"]

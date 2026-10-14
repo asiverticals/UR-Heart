@@ -11,6 +11,7 @@ import '../../features/auth/presentation/screens/magic_link_screen.dart';
 import '../../features/blind_date/presentation/screens/blind_date_hub_screen.dart';
 import '../../features/blind_date/presentation/screens/blind_date_session_screen.dart';
 import '../../features/chat/presentation/screens/chat_dialogue_screen.dart';
+import '../../features/feed/domain/models/discovery_profile.dart';
 import '../../features/feed/presentation/screens/ignored_profiles_screen.dart';
 import '../../features/legal_vault/presentation/screens/vault_legal_screen.dart';
 import '../../features/navigation/presentation/screens/sanctuary_navigation_shell.dart';
@@ -159,6 +160,9 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           userId: state.uri.queryParameters['user_id'] ??
               state.uri.queryParameters['userId'] ??
               '',
+          initialProfile: state.extra is DiscoveryProfile
+              ? state.extra as DiscoveryProfile
+              : null,
         ),
       ),
       GoRoute(
