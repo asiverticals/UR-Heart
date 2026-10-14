@@ -77,9 +77,17 @@ class SlumberService {
   }
 
   /// Validates whether the morning harvest is claimable:
-  /// 1. Current local time is between 05:00 and 12:00.
-  /// 2. Harvest has not already been claimed today by this authenticated account.
-  Future<bool> isMorningHarvestAvailable({String? userId, DateTime? now}) async {
+  /// 1. Prioritizes server's morning_harvest_available if provided.
+  /// 2. Otherwise validates current window (05:00 - 12:00) and ensures harvest has not been claimed today (UTC).
+  Future<bool> isMorningHarvestAvailable({
+    String? userId,
+    DateTime? now,
+    bool? serverHarvestAvailable,
+  }) async {
+    if (serverHarvestAvailable != null) {
+      return serverHarvestAvailable;
+    }
+
     final current = now ?? DateTime.now();
     if (current.hour < 5 || current.hour >= 12) {
       return false;
@@ -87,7 +95,7 @@ class SlumberService {
 
     final prefs = await SharedPreferences.getInstance();
     final lastHarvestDate = prefs.getString(harvestKey(userId));
-    final todayString = _formatDate(current.toUtc());
+    final todayString = _formatDate(current);
 
     if (lastHarvestDate == todayString) {
       return false;
@@ -100,7 +108,7 @@ class SlumberService {
   Future<void> markHarvestClaimed({String? userId, DateTime? now}) async {
     final prefs = await SharedPreferences.getInstance();
     final current = now ?? DateTime.now();
-    await prefs.setString(harvestKey(userId), _formatDate(current.toUtc()));
+    await prefs.setString(harvestKey(userId), _formatDate(current));
   }
 
   /// Resets stored sleep timestamps for testing or new night tracking cycle.

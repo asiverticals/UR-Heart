@@ -12,9 +12,9 @@ class MorningHarvestClaimRequest(BaseModel):
         le=24.0,
         description="Hours of restful nocturnal sleep detected via accelerometer stillness",
     )
-    is_verified: bool = Field(
-        default=False,
-        description="True if nocturnal stillness was verified via accelerometer hardware sensor; unverified claims are capped at base tier (1.0x) as a deliberate anti-cheat product constraint",
+    is_verified: Optional[bool] = Field(
+        default=None,
+        description="Advisory client flag; server derives verification authoritatively from account slumber records",
     )
 
 class StreakStatusResponse(BaseModel):

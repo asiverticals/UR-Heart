@@ -112,7 +112,7 @@ class StreakEngine:
         sleep_hours: float,
         session: AsyncSession,
         now: Optional[datetime] = None,
-        is_verified: bool = True,
+        is_verified: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Validates sleep duration, enforces daily idempotency, and provisions morning harvest rewards atomically."""
         current_time = now or datetime.now(timezone.utc)
@@ -126,11 +126,20 @@ class StreakEngine:
             )
 
         # 2. Lock user row with SELECT ... FOR UPDATE to prevent concurrent double-claim race conditions
-        stmt = select(User).where(User.id == user.id).with_for_update()
+        stmt = (
+            select(User)
+            .where(User.id == user.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         res = await session.execute(stmt)
         locked_user = res.scalar_one_or_none()
         if locked_user is None:
-            locked_user = user
+            raise SanctuaryException(
+                error_code="USER_NOT_FOUND",
+                message="Account not found.",
+                status_code=404,
+            )
 
         # 3. Daily idempotency check on locked record
         if not self.is_harvest_available(locked_user, now=current_time):
@@ -140,8 +149,10 @@ class StreakEngine:
                 status_code=400,
             )
 
-        # 4. Calculate reward yield
-        reward = self.calculate_morning_reward(sleep_hours, is_verified=is_verified)
+        # 4. Calculate reward yield using server-side verification evidence
+        has_server_evidence = bool(locked_user.night_slumber)
+        verified = has_server_evidence if is_verified is None else (is_verified and has_server_evidence)
+        reward = self.calculate_morning_reward(sleep_hours, is_verified=verified)
 
         # 5. Atomic balance provisioning
         locked_user.swipes_remaining = (locked_user.swipes_remaining or 0) + reward["swipes_awarded"]

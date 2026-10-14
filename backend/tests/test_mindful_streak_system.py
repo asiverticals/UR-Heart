@@ -7,7 +7,7 @@ from backend.app.core.exceptions import SanctuaryException
 from backend.app.main import app
 from backend.app.api.deps import get_current_user
 from backend.app.core.database import get_db
-from backend.app.services.streak_engine import StreakEngine
+from backend.app.services.streak_engine import StreakEngine, get_streak_engine
 
 @pytest.mark.asyncio
 async def test_streak_increment_within_24h(db_session, make_user):
@@ -82,7 +82,7 @@ def test_slumber_rest_multipliers():
 async def test_morning_harvest_once_per_day_idempotency(db_session, make_user):
     """Test 4: Attempting to claim morning harvest twice on the same calendar day raises 400."""
     engine = StreakEngine()
-    user = make_user(swipes_remaining=10, boost_points=50, is_profile_completed=True)
+    user = make_user(swipes_remaining=10, boost_points=50, is_profile_completed=True, night_slumber=True)
     db_session.add(user)
     await db_session.commit()
 
@@ -121,10 +121,32 @@ async def test_morning_harvest_clamping_and_bounds(db_session, make_user):
         await engine.claim_morning_harvest(user, -2.0, db_session, now=day)
     assert exc.value.error_code == "INVALID_SLEEP_DURATION"
 
+class DeterministicStreakEngine(StreakEngine):
+    def __init__(self, fixed_now: datetime):
+        super().__init__()
+        self.fixed_now = fixed_now
+
+    def evaluate_streak_decay(self, user, now=None):
+        return super().evaluate_streak_decay(user, now=now or self.fixed_now)
+
+    def record_daily_activity(self, user, now=None):
+        return super().record_daily_activity(user, now=now or self.fixed_now)
+
+    def calculate_remaining_seconds(self, user, now=None):
+        return super().calculate_remaining_seconds(user, now=now or self.fixed_now)
+
+    def is_harvest_available(self, user, now=None):
+        return super().is_harvest_available(user, now=now or self.fixed_now)
+
+    async def claim_morning_harvest(self, user, sleep_hours, session, now=None, is_verified=None):
+        return await super().claim_morning_harvest(user, sleep_hours, session, now=now or self.fixed_now, is_verified=is_verified)
+
 @pytest.mark.asyncio
 async def test_streak_api_endpoints_integration(db_session, make_user):
     """Test 6: Integration tests for /api/v1/streak/status, /claim-morning-harvest, and /heartbeat."""
-    now = datetime.now(timezone.utc)
+    fixed_now = datetime(2026, 10, 14, 8, 30, 0, tzinfo=timezone.utc)
+    engine = DeterministicStreakEngine(fixed_now)
+
     user = make_user(
         full_name="Circadian Seeker",
         streak_count=5,
@@ -132,14 +154,16 @@ async def test_streak_api_endpoints_integration(db_session, make_user):
         swipes_remaining=10,
         direct_letters_count=1,
         is_profile_completed=True,
+        night_slumber=True,
     )
-    user.streak_expires_at = now + timedelta(hours=2)
-    user.last_streak_ad_at = (now - timedelta(days=1)).replace(hour=8, minute=0, second=0)
+    user.streak_expires_at = fixed_now + timedelta(hours=2)
+    user.last_streak_ad_at = (fixed_now - timedelta(days=1)).replace(hour=8, minute=0, second=0)
     db_session.add(user)
     await db_session.commit()
 
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[get_db] = lambda: db_session
+    app.dependency_overrides[get_streak_engine] = lambda: engine
 
     try:
         transport = ASGITransport(app=app)
@@ -156,7 +180,7 @@ async def test_streak_api_endpoints_integration(db_session, make_user):
             # 2. POST /claim-morning-harvest (Deep Slumber 8.2h verified -> 2.0x)
             harvest_res = await client.post(
                 "/api/v1/streak/claim-morning-harvest",
-                json={"sleep_duration_hours": 8.2, "is_verified": True},
+                json={"sleep_duration_hours": 8.2},
             )
             assert harvest_res.status_code == 200
             h_data = harvest_res.json()["data"]

@@ -124,8 +124,19 @@ class ChatDialogueController extends StateNotifier<ChatDialogueState> {
       final bool isClosed = !isActive || (meta?['closure_status'] == 'closed');
 
       if (mounted) {
+        final serverClientIds = historical
+            .map((m) => m.clientId)
+            .whereType<String>()
+            .toSet();
+        final pendingLocal = state.messages.where((m) =>
+            m.id == null &&
+            m.clientId != null &&
+            !serverClientIds.contains(m.clientId));
+
         state = state.copyWith(
-          messages: historical.isNotEmpty ? historical : state.messages,
+          messages: historical.isNotEmpty
+              ? [...historical, ...pendingLocal]
+              : state.messages,
           isLoadingHistory: false,
           isDialogueClosed: isClosed || state.isDialogueClosed,
           closureTemplateKey: closureKey ?? state.closureTemplateKey,

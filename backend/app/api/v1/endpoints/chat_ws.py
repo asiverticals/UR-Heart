@@ -253,6 +253,7 @@ async def _handle_chat_websocket(
                         },
                     )
 
+                    msg_id = msg.id
                     if delivered:
                         msg.status = "delivered"
                         await session.commit()
@@ -261,7 +262,7 @@ async def _handle_chat_websocket(
                     await websocket.send_json({
                         "type": "ack",
                         "client_id": client_id,
-                        "id": msg.id,
+                        "id": msg_id,
                         "status": "delivered" if delivered else "sent",
                     })
                     break

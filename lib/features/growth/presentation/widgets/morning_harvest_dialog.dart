@@ -11,12 +11,14 @@ import '../../../../core/theme/widgets/sanctuary_glass_container.dart';
 class MorningHarvestDialog extends ConsumerStatefulWidget {
   final double sleepHours;
   final String? userId;
+  final bool isVerified;
   final VoidCallback? onHarvestSuccess;
 
   const MorningHarvestDialog({
     super.key,
     required this.sleepHours,
     this.userId,
+    this.isVerified = true,
     this.onHarvestSuccess,
   });
 
@@ -24,6 +26,7 @@ class MorningHarvestDialog extends ConsumerStatefulWidget {
     BuildContext context, {
     required double sleepHours,
     String? userId,
+    bool isVerified = true,
     VoidCallback? onHarvestSuccess,
   }) {
     return showDialog<bool>(
@@ -33,6 +36,7 @@ class MorningHarvestDialog extends ConsumerStatefulWidget {
       builder: (ctx) => MorningHarvestDialog(
         sleepHours: sleepHours,
         userId: userId,
+        isVerified: isVerified,
         onHarvestSuccess: onHarvestSuccess,
       ),
     );
@@ -47,8 +51,10 @@ class _MorningHarvestDialogState extends ConsumerState<MorningHarvestDialog> {
   String? _errorMessage;
 
   double get multiplier {
-    if (widget.sleepHours >= 8.0) return 2.0;
-    if (widget.sleepHours >= 6.0) return 1.5;
+    if (!widget.isVerified) return 1.0;
+    final clamped = widget.sleepHours.clamp(0.0, 12.0);
+    if (clamped >= 8.0) return 2.0;
+    if (clamped >= 6.0) return 1.5;
     return 1.0;
   }
 
@@ -64,9 +70,13 @@ class _MorningHarvestDialogState extends ConsumerState<MorningHarvestDialog> {
 
     try {
       final client = ref.read(sanctuaryHttpClientProvider);
+      final clamped = widget.sleepHours.clamp(0.0, 12.0);
       final response = await client.post(
         '/api/v1/streak/claim-morning-harvest',
-        body: {'sleep_duration_hours': widget.sleepHours},
+        body: {
+          'sleep_duration_hours': clamped,
+          'is_verified': widget.isVerified,
+        },
       );
 
       // Mark locally claimed in SlumberService with account scoping

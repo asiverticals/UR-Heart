@@ -55,6 +55,10 @@ class WsTicketStore:
         async with self._lock:
             self._tickets.clear()
 
+# Architectural deployment invariant:
+# The in-memory WsTicketStore and ConnectionManager operate in single-process ASGI mode
+# (Uvicorn worker count = 1 / sticky session proxy) per Chunk 6.1 spec (<5ms RAM delivery).
+# Multi-worker deployments require Redis Pub/Sub backend for distributed ticket validation and relay.
 ws_ticket_store = WsTicketStore()
 
 def get_ws_ticket_store() -> WsTicketStore:
