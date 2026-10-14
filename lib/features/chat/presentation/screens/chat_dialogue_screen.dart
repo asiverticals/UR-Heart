@@ -234,7 +234,7 @@ class _ChatDialogueScreenState extends ConsumerState<ChatDialogueScreen> {
             ),
           ),
 
-          // Options Menu: "Pass with Grace" & "Report Grievance"
+          // Options Menu: "Pass with Grace"
           PopupMenuButton<String>(
             icon: Icon(Icons.more_vert_rounded, color: tokens.textPrimary),
             color: tokens.elevatedSurface,
@@ -242,10 +242,6 @@ class _ChatDialogueScreenState extends ConsumerState<ChatDialogueScreen> {
             onSelected: (value) {
               if (value == 'pass_with_grace') {
                 _openPassWithGraceDialog();
-              } else if (value == 'report_grievance') {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Grievance reported for administrative audit.')),
-                );
               }
             },
             itemBuilder: (ctx) => [
@@ -262,11 +258,12 @@ class _ChatDialogueScreenState extends ConsumerState<ChatDialogueScreen> {
                 ),
               const PopupMenuItem(
                 value: 'report_grievance',
+                enabled: false,
                 child: Row(
                   children: [
-                    Icon(Icons.flag_outlined, size: 18.0, color: SanctuaryGlassTokens.alertRed),
+                    Icon(Icons.flag_outlined, size: 18.0, color: Colors.grey),
                     SizedBox(width: 10.0),
-                    Text('Report Grievance'),
+                    Text('Report Grievance (Coming Soon)'),
                   ],
                 ),
               ),

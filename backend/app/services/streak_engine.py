@@ -59,7 +59,8 @@ class StreakEngine:
     def calculate_morning_reward(self, sleep_hours: float, is_verified: bool = True) -> Dict[str, Any]:
         """Calculates tiered rest multiplier M_rest and reward inventory from sleep duration.
         
-        If unverified, limits multiplier to base tier (1.0x).
+        Deliberate anti-cheat product decision: Unverified claims are capped at base tier (1.0x)
+        to protect the currency economy from artificial minting.
         """
         clamped_hours = max(0.0, min(12.0, float(sleep_hours)))
         if not is_verified:

@@ -78,13 +78,14 @@ async def issue_ws_ticket(
     
     Prevents leaking long-lived JWT access tokens into URL query strings and proxy server logs.
     """
-    ticket = await ticket_store.create_ticket(current_user.id, ttl_seconds=60)
+    ttl = settings.WS_TICKET_EXPIRE_SECONDS
+    ticket = await ticket_store.create_ticket(current_user.id, ttl_seconds=ttl)
     ws_url = settings.WS_BASE_URL
     return SanctuaryResponse(
         data=WsTicketResponse(
             ticket=ticket,
-            expires_in=60,
-            expires_in_seconds=60,
+            expires_in=ttl,
+            expires_in_seconds=ttl,
             ws_url=ws_url,
             endpoint_url=ws_url,
         ),
@@ -168,6 +169,7 @@ async def _handle_chat_websocket(
                                     "type": "error",
                                     "error_code": "MATCH_NOT_FOUND_OR_INACTIVE",
                                     "message": "Seeker is not an active participant in this dialogue match.",
+                                    "match_id": str(match_uuid),
                                 })
                             break
                     except ValueError:
@@ -220,6 +222,7 @@ async def _handle_chat_websocket(
                             "error_code": "MATCH_NOT_FOUND_OR_INACTIVE",
                             "message": "Seeker is not an active participant in this dialogue match.",
                             "client_id": client_id,
+                            "match_id": str(match_uuid),
                         })
                         break
 
@@ -282,6 +285,7 @@ async def _handle_chat_websocket(
                                     "type": "error",
                                     "error_code": "MATCH_NOT_FOUND_OR_INACTIVE",
                                     "message": "Seeker is not an active participant in this dialogue match.",
+                                    "match_id": str(match_uuid),
                                 })
                                 break
 

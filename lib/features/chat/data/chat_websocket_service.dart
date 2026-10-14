@@ -76,8 +76,12 @@ class ChatWebSocketService {
         cancelOnError: true,
       );
 
+      final wasReconnect = _reconnectAttempts > 0;
       _reconnectAttempts = 0;
       debugPrint('[ChatWS] Connected successfully via ephemeral ticket handshake.');
+      if (wasReconnect) {
+        _eventStreamController.add({'type': '_reconnected'});
+      }
     } catch (e) {
       debugPrint('[ChatWS] Handshake failed: $e');
       _handleDisconnectAndScheduleReconnect();

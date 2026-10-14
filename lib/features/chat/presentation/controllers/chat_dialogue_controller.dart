@@ -20,7 +20,7 @@ class ChatDialogueState {
 
   const ChatDialogueState({
     this.messages = const [],
-    this.isPeerOnline = true,
+    this.isPeerOnline = false,
     this.isPeerTyping = false,
     this.isDialogueClosed = false,
     this.closureTemplateKey,
@@ -52,7 +52,7 @@ class ChatDialogueState {
   }
 }
 
-final chatDialogueControllerProvider = StateNotifierProvider.family<
+final chatDialogueControllerProvider = StateNotifierProvider.autoDispose.family<
     ChatDialogueController, ChatDialogueState, String>((ref, matchId) {
   final httpClient = ref.watch(sanctuaryHttpClientProvider);
   final wsService = ref.watch(chatWebSocketServiceProvider);
@@ -92,9 +92,6 @@ class ChatDialogueController extends StateNotifier<ChatDialogueState> {
   /// Initializes the dialogue: loads historical messages and binds WebSocket stream.
   Future<void> initializeDialogue(String matchId, String peerId) async {
     _peerId = peerId;
-    if (state.messages.isEmpty) {
-      state = state.copyWith(isLoadingHistory: true, errorMessage: null);
-    }
 
     // 1. Subscribe to real-time events
     _eventSubscription?.cancel();
@@ -105,7 +102,15 @@ class ChatDialogueController extends StateNotifier<ChatDialogueState> {
       await _wsService.connect();
     }
 
-    // 3. Fetch history from backend
+    // 3. Fetch history from backend and sync read status
+    await _syncHistoryAndReadStatus(showLoading: true);
+  }
+
+  Future<void> _syncHistoryAndReadStatus({bool showLoading = false}) async {
+    if (showLoading && state.messages.isEmpty && mounted) {
+      state = state.copyWith(isLoadingHistory: true, errorMessage: null);
+    }
+
     try {
       final res = await _httpClient.get('/api/v1/chat/messages/$matchId');
       final dataList = res['data'] as List<dynamic>? ?? const [];
@@ -141,7 +146,7 @@ class ChatDialogueController extends StateNotifier<ChatDialogueState> {
     }
   }
 
-  void _handleSocketFrame(Map<String, dynamic> frame) {
+  void _handleSocketFrame(Map<String, dynamic> frame) async {
     if (!mounted) return;
     final type = frame['type']?.toString();
     final frameMatchId = frame['match_id']?.toString();
@@ -226,12 +231,16 @@ class ChatDialogueController extends StateNotifier<ChatDialogueState> {
         );
         break;
 
+      case '_reconnected':
+        await _syncHistoryAndReadStatus(showLoading: false);
+        break;
+
       case 'error':
         final errorCode = frame['error_code']?.toString();
         final clientId = frame['client_id']?.toString();
         final message = frame['message']?.toString();
 
-        if (errorCode == 'MATCH_NOT_FOUND_OR_INACTIVE') {
+        if (errorCode == 'MATCH_NOT_FOUND_OR_INACTIVE' && frameMatchId == matchId) {
           state = state.copyWith(isDialogueClosed: true);
         }
 
