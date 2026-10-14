@@ -176,17 +176,44 @@ class FcmService:
                     res = await client.post(fcm_url, json=payload, headers=headers, timeout=5.0)
                     if res.status_code == 200:
                         success_count += 1
-                    elif res.status_code in (404, 410) or "UNREGISTERED" in res.text:
-                        logger.warning(f"FCM token {record.token[:12]}... unregistered. Deactivating.")
-                        tokens_to_deactivate.append(record)
-                    elif "INVALID_ARGUMENT" in res.text and (
-                        "registration-token-not-registered" in res.text.lower()
-                        or "invalid token" in res.text.lower()
-                    ):
-                        logger.warning(f"FCM token {record.token[:12]}... invalid registration token. Deactivating.")
-                        tokens_to_deactivate.append(record)
                     else:
-                        logger.warning(f"FCM delivery status {res.status_code}: {res.text}")
+                        try:
+                            err_body = res.json().get("error", {})
+                            err_status = err_body.get("status")
+                            err_details = err_body.get("details", [])
+                            error_codes = [
+                                d.get("errorCode") for d in err_details if isinstance(d, dict)
+                            ]
+                        except Exception:
+                            err_body = {}
+                            err_status = None
+                            error_codes = []
+
+                        is_unregistered = (
+                            err_status == "UNREGISTERED"
+                            or "UNREGISTERED" in error_codes
+                            or res.status_code == 410
+                            or (res.status_code == 404 and ("UNREGISTERED" in error_codes or err_status == "UNREGISTERED"))
+                        )
+                        is_invalid_token = (
+                            err_status == "INVALID_ARGUMENT"
+                            and (
+                                "registration-token-not-registered" in res.text.lower()
+                                or "invalid token" in res.text.lower()
+                                or any(
+                                    isinstance(d, dict) and d.get("field") == "message.token"
+                                    for d in err_details
+                                )
+                            )
+                        )
+
+                        if is_unregistered or is_invalid_token:
+                            logger.warning(
+                                f"FCM token {record.token[:12]}... stale/unregistered ({err_status or res.status_code}). Deactivating."
+                            )
+                            tokens_to_deactivate.append(record)
+                        else:
+                            logger.warning(f"FCM delivery status {res.status_code}: {res.text}")
                 except Exception as ex:
                     logger.error(f"FCM dispatch network error for token {record.token[:12]}...: {ex}")
 

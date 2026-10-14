@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.deps import get_current_user
@@ -29,6 +29,13 @@ async def register_device_token(
     existing_token = res.scalar_one_or_none()
 
     if existing_token:
+        prev_user_id = existing_token.user_id
+        if prev_user_id != current_user.id:
+            await db.execute(
+                update(User)
+                .where(User.id == prev_user_id, User.fcm_token == payload.token)
+                .values(fcm_token=None)
+            )
         existing_token.user_id = current_user.id
         existing_token.platform = payload.platform
         existing_token.is_active = True

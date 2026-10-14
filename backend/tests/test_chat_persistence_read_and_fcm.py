@@ -188,8 +188,13 @@ async def test_offline_recipient_triggers_fcm_push_with_dpdp_privacy_copy(db_ses
                 assert ack["type"] == "ack"
                 assert ack["status"] == "sent"
 
-                # Yield to let the background task execute
-                await asyncio.sleep(0.05)
+                # Await background tasks deterministically
+                from backend.app.api.v1.endpoints import chat_ws as chat_ws_mod
+                if chat_ws_mod._background_tasks:
+                    await asyncio.wait_for(
+                        asyncio.gather(*list(chat_ws_mod._background_tasks)),
+                        timeout=2.0,
+                    )
 
                 assert mock_push.call_count == 1
                 call_kwargs = mock_push.call_args.kwargs
@@ -413,5 +418,141 @@ async def test_toggling_push_preferences_halts_dispatches(db_session, make_user)
                 )
                 assert deliveries == 0
                 assert mock_http.call_count == 0
+    finally:
+        app.dependency_overrides.clear()
+
+@pytest.mark.asyncio
+async def test_token_reassignment_clears_previous_user_fcm_token(db_session, make_user):
+    """Test 6: When a device token is registered to a new user, the previous owner's fcm_token is cleared."""
+    user1 = make_user(full_name="User Alpha", is_profile_completed=True)
+    user2 = make_user(full_name="User Beta", is_profile_completed=True)
+    db_session.add_all([user1, user2])
+    await db_session.commit()
+
+    shared_device_token = "fcm_token_shared_device_999"
+
+    # User 1 registers device token
+    app.dependency_overrides[get_current_user] = lambda: user1
+    app.dependency_overrides[get_db] = lambda: db_session
+    try:
+        transport = ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            res1 = await client.post(
+                "/api/v1/notifications/device-token",
+                json={"token": shared_device_token, "platform": "android"},
+            )
+            assert res1.status_code == 200
+            await db_session.refresh(user1)
+            assert user1.fcm_token == shared_device_token
+
+        # User 2 now registers the SAME device token on the same physical phone
+        app.dependency_overrides[get_current_user] = lambda: user2
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            res2 = await client.post(
+                "/api/v1/notifications/device-token",
+                json={"token": shared_device_token, "platform": "android"},
+            )
+            assert res2.status_code == 200
+            await db_session.refresh(user1)
+            await db_session.refresh(user2)
+
+            # Previous user's fcm_token must be cleared to prevent cross-account push leakage
+            assert user1.fcm_token is None
+            # Current user now owns the token
+            assert user2.fcm_token == shared_device_token
+
+            # DeviceFcmToken row updated to User 2
+            row = (await db_session.execute(
+                select(DeviceFcmToken).where(DeviceFcmToken.token == shared_device_token)
+            )).scalar_one()
+            assert row.user_id == user2.id
+            assert row.is_active is True
+    finally:
+        app.dependency_overrides.clear()
+
+@pytest.mark.asyncio
+async def test_fcm_project_not_found_404_does_not_deactivate_token(db_session, make_user):
+    """Test 7: Generic 404 (e.g., misconfigured FIREBASE_PROJECT_ID) does not deactivate user tokens."""
+    user = make_user(full_name="Survivor Token Seeker", is_profile_completed=True)
+    db_session.add(user)
+    await db_session.commit()
+
+    token_record = DeviceFcmToken(
+        user_id=user.id,
+        token="valid_token_wrong_project_404",
+        platform="android",
+        is_active=True,
+    )
+    db_session.add(token_record)
+    await db_session.commit()
+
+    # FCM returns HTTP 404 with status NOT_FOUND and NO UNREGISTERED errorCode
+    mock_response = httpx.Response(
+        status_code=404,
+        json={"error": {"code": 404, "message": "Project test-invalid-project not found.", "status": "NOT_FOUND"}},
+    )
+
+    with patch.object(settings, "FIREBASE_PROJECT_ID", "test-invalid-project"), \
+         patch.object(fcm_service, "_get_access_token", new_callable=AsyncMock, return_value="mock_access_token_123"), \
+         patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
+        deliveries = await fcm_service.send_multicast_push(
+            user_id=user.id,
+            title="Sanctuary Test",
+            body="Reflection",
+            data_payload={"match_id": "123"},
+            channel_id="channel_kinship_dialogue",
+            session=db_session,
+        )
+        assert deliveries == 0
+
+    # Token must remain active! Not wiped by generic 404!
+    res = await db_session.execute(
+        select(DeviceFcmToken.is_active).where(DeviceFcmToken.token == "valid_token_wrong_project_404")
+    )
+    assert res.scalar_one() is True
+
+@pytest.mark.asyncio
+async def test_chat_ws_background_task_exception_handled(db_session, make_user):
+    """Test 8: Background task exception is logged cleanly without unhandled errors."""
+    user_a = make_user(full_name="Sender Seeker", is_profile_completed=True)
+    user_b = make_user(full_name="Offline Seeker", is_profile_completed=True)
+    db_session.add_all([user_a, user_b])
+    await db_session.commit()
+
+    u1_id, u2_id = sorted([user_a.id, user_b.id])
+    match = Match(
+        id=uuid.uuid4(),
+        user1_id=u1_id,
+        user2_id=u2_id,
+        is_active=True,
+    )
+    db_session.add(match)
+    await db_session.commit()
+
+    ticket_a = await ws_ticket_store.create_ticket(user_a.id)
+    app.dependency_overrides[get_db] = lambda: db_session
+
+    try:
+        with patch.object(fcm_service, "send_multicast_push", side_effect=RuntimeError("FCM network boom")):
+            async with AsyncWsClient(app, f"/ws/chat?ticket={ticket_a}") as ws_a:
+                await ws_a.send_json({
+                    "type": "message",
+                    "match_id": str(match.id),
+                    "recipient_id": str(user_b.id),
+                    "encrypted_text": "hello_world_text",
+                    "client_id": "client_err_1",
+                })
+                ack = await ws_a.receive_json()
+                assert ack["type"] == "ack"
+
+                from backend.app.api.v1.endpoints import chat_ws as chat_ws_mod
+                if chat_ws_mod._background_tasks:
+                    await asyncio.wait_for(
+                        asyncio.gather(*list(chat_ws_mod._background_tasks), return_exceptions=True),
+                        timeout=2.0,
+                    )
+                await asyncio.sleep(0)
+                # Task completed and removed from strong reference set
+                assert len(chat_ws_mod._background_tasks) == 0
     finally:
         app.dependency_overrides.clear()

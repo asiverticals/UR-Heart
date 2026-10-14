@@ -1,9 +1,12 @@
 import asyncio
 import json
+import logging
 import time
 from datetime import datetime, timezone
 from typing import AsyncGenerator, Optional
 from uuid import UUID
+
+logger = logging.getLogger("SanctuaryChatWS")
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select, or_, and_, update, func
@@ -28,6 +31,13 @@ ws_router = APIRouter()
 
 # Retain strong references to background asyncio tasks to prevent premature garbage collection
 _background_tasks: set[asyncio.Task] = set()
+
+def _handle_background_task_done(task: asyncio.Task) -> None:
+    _background_tasks.discard(task)
+    if not task.cancelled():
+        exc = task.exception()
+        if exc:
+            logger.error("FCM background push task failed: %s", exc, exc_info=exc)
 
 async def get_db_session(websocket: WebSocket) -> AsyncGenerator[AsyncSession, None]:
     """Resolves an async database session, utilizing FastAPI test overrides if present."""
@@ -274,7 +284,7 @@ async def _handle_chat_websocket(
                             )
                         )
                         _background_tasks.add(task)
-                        task.add_done_callback(_background_tasks.discard)
+                        task.add_done_callback(_handle_background_task_done)
 
                     # Acknowledge sender with delivery status
                     await websocket.send_json({
