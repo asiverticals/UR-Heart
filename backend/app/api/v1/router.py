@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from .endpoints import auth, chat_closure, chat_ws, feed, health, kyc, media, notifications, revelation, streak
+from .endpoints import auth, chat_closure, chat_ws, feed, health, kyc, media, notifications, revelation, store, streak
 
 api_router = APIRouter()
 
@@ -30,6 +30,9 @@ api_router.include_router(chat_closure.router, prefix="/chat", tags=["Chat"])
 
 # 9. Background Push Notifications (FCM HTTP v1)
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
+
+# 10. Sovereign Store & Monetization Catalog (Condition C2)
+api_router.include_router(store.router, prefix="/store", tags=["Store"])
 
 
 

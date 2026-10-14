@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 class RazorpayOrderCreate(BaseModel):
@@ -52,3 +52,33 @@ class WebStoreClaimPending(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     email: EmailStr = Field(..., description="Account email linked to pending purchase entitlement")
+
+class StoreProductItem(BaseModel):
+    """Product model in sovereign store catalog."""
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(..., description="Product SKU identifier")
+    title: str = Field(..., description="Product display title")
+    description: str = Field(..., description="Editorial product explanation")
+    product_class: str = Field(..., description="Product class: micro_perk or pass")
+    inr_price: float = Field(..., description="Price in Indian Rupees (INR)")
+    usd_price: Optional[float] = Field(None, description="Price in USD (gated under Condition C2)")
+    currency_symbol: str = Field("₹", description="Display currency symbol")
+    badge_label: Optional[str] = Field(None, description="Product badge tag")
+    entitlement: Optional[str] = Field(None, description="Yield entitlement description")
+
+class StoreCatalogResponse(BaseModel):
+    """Sovereign Store active catalog response."""
+    currency: str = Field("INR", description="Default billing currency")
+    usd_enabled: bool = Field(False, description="Whether international USD billing is enabled")
+    products: List[StoreProductItem] = Field(default_factory=list, description="Available products")
+
+class StoreBalancesResponse(BaseModel):
+    """Seeker wallet and entitlement balance response."""
+    reward_balance: int = Field(0, description="Mindful reward points / coins balance")
+    streak_count: int = Field(0, description="Active daily streak count")
+    swipes_remaining: int = Field(25, description="Available discovery swipe balance")
+    direct_letters_count: int = Field(1, description="Intentional direct letters balance")
+    boost_points: int = Field(0, description="Discovery boost priority score")
+    subscription_tier: str = Field("free", description="Active membership tier")
+    is_ad_free: bool = Field(False, description="Whether seeker enjoys ad-free experience")

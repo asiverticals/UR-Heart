@@ -7,7 +7,7 @@ import '../../../chat/presentation/screens/chats_list_screen.dart';
 import '../../../feed/presentation/screens/feed_screen.dart';
 import '../../../profile/presentation/screens/my_persona_screen.dart';
 import '../../../resonances/presentation/screens/resonances_screen.dart';
-import '../../../rewards/presentation/screens/growth_hub_screen.dart';
+import '../../../growth/presentation/screens/growth_hub_screen.dart';
 
 /// Screen 5: SanctuaryNavigationShell (/main Architecture)
 /// Master navigation scaffold hosting the persistent 5 tab views via IndexedStack

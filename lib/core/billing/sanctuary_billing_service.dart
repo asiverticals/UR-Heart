@@ -26,4 +26,12 @@ class SanctuaryBillingService {
       },
     );
   }
+
+  Future<Map<String, dynamic>> fetchStoreCatalog() async {
+    return _client.get('/api/v1/store/catalog');
+  }
+
+  Future<Map<String, dynamic>> fetchBalances() async {
+    return _client.get('/api/v1/store/balances');
+  }
 }

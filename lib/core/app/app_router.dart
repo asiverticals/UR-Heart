@@ -17,7 +17,7 @@ import '../../features/legal_vault/presentation/screens/vault_legal_screen.dart'
 import '../../features/navigation/presentation/screens/sanctuary_navigation_shell.dart';
 import '../../features/profile/presentation/screens/seeker_profile_detail_screen.dart';
 import '../../features/profile_setup/presentation/screens/profile_setup_screen.dart';
-import '../../features/rewards/presentation/screens/growth_hub_screen.dart';
+import '../../features/growth/presentation/screens/growth_hub_screen.dart';
 import '../../features/settings/presentation/screens/app_info_screen.dart';
 import '../../features/settings/presentation/screens/sanctuary_settings_screen.dart';
 import '../../features/settings/presentation/screens/superadmin_kyc_desk_screen.dart';

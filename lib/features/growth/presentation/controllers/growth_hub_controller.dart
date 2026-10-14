@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/billing/sanctuary_billing_service.dart';
+import '../../data/store_catalog_model.dart';
 
 @immutable
 class GrowthHubState {
@@ -10,6 +11,13 @@ class GrowthHubState {
   final bool isNightSlumberActive;
   final bool isLoading;
   final String? errorMessage;
+  final List<StoreProduct> products;
+  final int directLettersCount;
+  final int boostPoints;
+  final int swipesRemaining;
+  final String subscriptionTier;
+  final bool isAdFree;
+  final int streakRemainingSeconds;
 
   const GrowthHubState({
     required this.rewardBalance,
@@ -18,6 +26,13 @@ class GrowthHubState {
     required this.isNightSlumberActive,
     this.isLoading = false,
     this.errorMessage,
+    this.products = const [],
+    this.directLettersCount = 1,
+    this.boostPoints = 0,
+    this.swipesRemaining = 25,
+    this.subscriptionTier = 'free',
+    this.isAdFree = false,
+    this.streakRemainingSeconds = 86400,
   });
 
   GrowthHubState copyWith({
@@ -27,6 +42,13 @@ class GrowthHubState {
     bool? isNightSlumberActive,
     bool? isLoading,
     String? errorMessage,
+    List<StoreProduct>? products,
+    int? directLettersCount,
+    int? boostPoints,
+    int? swipesRemaining,
+    String? subscriptionTier,
+    bool? isAdFree,
+    int? streakRemainingSeconds,
   }) {
     return GrowthHubState(
       rewardBalance: rewardBalance ?? this.rewardBalance,
@@ -35,6 +57,13 @@ class GrowthHubState {
       isNightSlumberActive: isNightSlumberActive ?? this.isNightSlumberActive,
       isLoading: isLoading ?? this.isLoading,
       errorMessage: errorMessage,
+      products: products ?? this.products,
+      directLettersCount: directLettersCount ?? this.directLettersCount,
+      boostPoints: boostPoints ?? this.boostPoints,
+      swipesRemaining: swipesRemaining ?? this.swipesRemaining,
+      subscriptionTier: subscriptionTier ?? this.subscriptionTier,
+      isAdFree: isAdFree ?? this.isAdFree,
+      streakRemainingSeconds: streakRemainingSeconds ?? this.streakRemainingSeconds,
     );
   }
 }
@@ -49,6 +78,38 @@ class GrowthHubController extends StateNotifier<GrowthHubState> {
           restMultiplier: 1.0,
           isNightSlumberActive: false,
         ));
+
+  Future<void> fetchStoreCatalog() async {
+    state = state.copyWith(isLoading: true, errorMessage: null);
+    try {
+      final catalogRes = await _billingService.fetchStoreCatalog();
+      final balancesRes = await _billingService.fetchBalances();
+
+      final catalogData = catalogRes['data'] as Map<String, dynamic>? ?? catalogRes;
+      final rawProducts = catalogData['products'] as List? ?? [];
+      final products = rawProducts
+          .map((p) => StoreProduct.fromJson(Map<String, dynamic>.from(p as Map)))
+          .toList();
+
+      final balancesData = balancesRes['data'] as Map<String, dynamic>? ?? balancesRes;
+
+      if (!mounted) return;
+      state = state.copyWith(
+        products: products,
+        rewardBalance: (balancesData['reward_balance'] as num?)?.toInt() ?? state.rewardBalance,
+        streakCount: (balancesData['streak_count'] as num?)?.toInt() ?? state.streakCount,
+        directLettersCount: (balancesData['direct_letters_count'] as num?)?.toInt() ?? state.directLettersCount,
+        boostPoints: (balancesData['boost_points'] as num?)?.toInt() ?? state.boostPoints,
+        swipesRemaining: (balancesData['swipes_remaining'] as num?)?.toInt() ?? state.swipesRemaining,
+        subscriptionTier: (balancesData['subscription_tier'] as String?) ?? state.subscriptionTier,
+        isAdFree: (balancesData['is_ad_free'] as bool?) ?? state.isAdFree,
+        isLoading: false,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      state = state.copyWith(isLoading: false, errorMessage: e.toString());
+    }
+  }
 
   Future<void> claimAdReward({
     required String transactionId,
