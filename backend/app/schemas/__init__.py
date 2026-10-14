@@ -51,6 +51,11 @@ from .legal import (
     DataNomineeRequest,
     WebAccountDeletionRequest,
 )
+from .streak import (
+    MorningHarvestClaimRequest,
+    StreakStatusResponse,
+    HarvestClaimResponse,
+)
 from .media import (
     PresignedUploadRequest,
     PresignedUploadResponse,
@@ -106,6 +111,10 @@ __all__ = [
     "GrievanceResponse",
     "DataNomineeRequest",
     "WebAccountDeletionRequest",
+    # Streak & Slumber
+    "MorningHarvestClaimRequest",
+    "StreakStatusResponse",
+    "HarvestClaimResponse",
     # Media
     "PresignedUploadRequest",
     "PresignedUploadResponse",

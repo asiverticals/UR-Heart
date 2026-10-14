@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from .endpoints import auth, feed, health, kyc, media, revelation
+from .endpoints import auth, feed, health, kyc, media, revelation, streak
 
 api_router = APIRouter()
 
@@ -20,4 +20,7 @@ api_router.include_router(feed.router, prefix="/feed", tags=["DiscoveryFeed"])
 
 # 6. Revelation & Photo Veil Handshake
 api_router.include_router(revelation.router, prefix="/revelation", tags=["Revelation"])
+
+# 7. Mindful Streak & Slumber Harvest
+api_router.include_router(streak.router, prefix="/streak", tags=["MindfulStreak"])
 
