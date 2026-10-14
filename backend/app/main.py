@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from .api.v1.endpoints import health
+from .api.v1.endpoints import health, chat_ws
 from .api.v1.router import api_router
 from .core.config import settings, validate_production_secrets
 from .core.exceptions import SanctuaryException, sanctuary_exception_handler
@@ -75,3 +75,6 @@ async def root_sentinel(request: Request) -> Response:
 # Mount Health router directly at root (/health) and under /api/v1
 app.include_router(health.router)
 app.include_router(api_router, prefix="/api/v1")
+# Mount WebSocket relay directly at root (/ws/chat)
+app.include_router(chat_ws.ws_router)
+

@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from .endpoints import auth, feed, health, kyc, media, revelation, streak
+from .endpoints import auth, chat_ws, feed, health, kyc, media, revelation, streak
 
 api_router = APIRouter()
 
@@ -23,4 +23,8 @@ api_router.include_router(revelation.router, prefix="/revelation", tags=["Revela
 
 # 7. Mindful Streak & Slumber Harvest
 api_router.include_router(streak.router, prefix="/streak", tags=["MindfulStreak"])
+
+# 8. Real-time Dialogue & WebSocket Relay
+api_router.include_router(chat_ws.router, prefix="/chat", tags=["Chat"])
+
 
