@@ -9,6 +9,7 @@ from sqlalchemy import select
 from starlette.websockets import WebSocketDisconnect
 
 from backend.app.api.deps import get_current_user
+from backend.app.core.config import settings
 from backend.app.core.database import get_db
 from backend.app.core.ws_manager import connection_manager
 from backend.app.core.ws_ticket_store import ws_ticket_store
@@ -226,7 +227,9 @@ async def test_fcm_unregistered_deactivates_token(db_session, make_user):
         json={"error": {"code": 404, "message": "Requested entity was not found.", "status": "UNREGISTERED"}},
     )
 
-    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
+    with patch.object(settings, "FIREBASE_PROJECT_ID", "test-sanctuary-project"), \
+         patch.object(fcm_service, "_get_access_token", new_callable=AsyncMock, return_value="mock_access_token_123"), \
+         patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
         deliveries = await fcm_service.send_multicast_push(
             user_id=user.id,
             title="Sanctuary Test",
@@ -243,6 +246,74 @@ async def test_fcm_unregistered_deactivates_token(db_session, make_user):
     )
     is_active = res.scalar_one()
     assert is_active is False
+
+@pytest.mark.asyncio
+async def test_fcm_generic_invalid_argument_preserves_token(db_session, make_user):
+    """Test 3b: Generic INVALID_ARGUMENT (malformed payload) preserves active token; only explicit token error deactivates."""
+    user = make_user(full_name="Valid Seeker", is_profile_completed=True)
+    db_session.add(user)
+    await db_session.commit()
+
+    token_record = DeviceFcmToken(
+        user_id=user.id,
+        token="valid_active_token_555",
+        platform="android",
+        is_active=True,
+    )
+    db_session.add(token_record)
+    await db_session.commit()
+
+    # Generic bad payload field error from FCM
+    mock_response = httpx.Response(
+        status_code=400,
+        json={"error": {"code": 400, "message": "Invalid field in notification.", "status": "INVALID_ARGUMENT"}},
+    )
+
+    with patch.object(settings, "FIREBASE_PROJECT_ID", "test-sanctuary-project"), \
+         patch.object(fcm_service, "_get_access_token", new_callable=AsyncMock, return_value="mock_access_token_123"), \
+         patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
+        deliveries = await fcm_service.send_multicast_push(
+            user_id=user.id,
+            title="Sanctuary Test",
+            body="Reflection",
+            data_payload={"match_id": "123"},
+            session=db_session,
+        )
+        assert deliveries == 0
+
+    # Token must NOT be deactivated by generic INVALID_ARGUMENT
+    res = await db_session.execute(
+        select(DeviceFcmToken.is_active).where(DeviceFcmToken.token == "valid_active_token_555")
+    )
+    assert res.scalar_one() is True
+
+@pytest.mark.asyncio
+async def test_fcm_missing_credentials_or_project_returns_zero_early(db_session, make_user):
+    """Test 3c: Missing FIREBASE_PROJECT_ID or access token returns 0 immediately without calling HTTP."""
+    user = make_user(full_name="Unconfigured Seeker", is_profile_completed=True)
+    db_session.add(user)
+    await db_session.commit()
+
+    token_record = DeviceFcmToken(
+        user_id=user.id,
+        token="unconfigured_token_777",
+        platform="android",
+        is_active=True,
+    )
+    db_session.add(token_record)
+    await db_session.commit()
+
+    with patch.object(settings, "FIREBASE_PROJECT_ID", ""), \
+         patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_http:
+        deliveries = await fcm_service.send_multicast_push(
+            user_id=user.id,
+            title="Sanctuary Test",
+            body="Reflection",
+            data_payload={},
+            session=db_session,
+        )
+        assert deliveries == 0
+        assert mock_http.call_count == 0
 
 @pytest.mark.asyncio
 async def test_notifications_device_token_lifecycle_api(db_session, make_user):

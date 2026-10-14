@@ -1,6 +1,7 @@
+import asyncio
+from datetime import datetime, timezone
 import json
 import logging
-import time
 from typing import Any, Dict, Optional
 from uuid import UUID
 
@@ -23,8 +24,7 @@ class FcmService:
     def __init__(self) -> None:
         self.scopes = ["https://www.googleapis.com/auth/firebase.messaging"]
         self.credentials: Optional[service_account.Credentials] = None
-        self._cached_token: Optional[str] = None
-        self._token_expiry: float = 0.0
+        self._auth_lock = asyncio.Lock()
 
         if settings.FIREBASE_SERVICE_ACCOUNT_JSON and settings.FIREBASE_SERVICE_ACCOUNT_JSON.strip() not in ("", "{}"):
             try:
@@ -36,21 +36,35 @@ class FcmService:
             except Exception as e:
                 logger.warning(f"FCM service account initialization skipped: {e}")
 
-    def _get_access_token(self) -> Optional[str]:
-        """Returns valid OAuth2 Bearer token, refreshing before expiry."""
+    async def _get_access_token(self) -> Optional[str]:
+        """Returns valid OAuth2 Bearer token, refreshing off-thread before expiry."""
         if not self.credentials:
             return None
 
-        now = time.time()
-        if self._cached_token and now < (self._token_expiry - 60):
-            return self._cached_token
+        # Check existing token validity and credentials.expiry
+        if self.credentials.valid and getattr(self.credentials, "expiry", None):
+            remaining = (self.credentials.expiry - datetime.now(timezone.utc)).total_seconds()
+            if remaining > 60:
+                return self.credentials.token
 
-        req = google.auth.transport.requests.Request()
-        self.credentials.refresh(req)
-        self._cached_token = self.credentials.token
-        # Google tokens typically expire in 3600 seconds
-        self._token_expiry = now + 3500
-        return self._cached_token
+        async with self._auth_lock:
+            # Double check within lock
+            if self.credentials.valid and getattr(self.credentials, "expiry", None):
+                remaining = (self.credentials.expiry - datetime.now(timezone.utc)).total_seconds()
+                if remaining > 60:
+                    return self.credentials.token
+
+            def _refresh_sync():
+                req = google.auth.transport.requests.Request()
+                self.credentials.refresh(req)
+                return self.credentials.token
+
+            try:
+                token = await asyncio.to_thread(_refresh_sync)
+                return token
+            except Exception as e:
+                logger.error(f"FCM OAuth2 credential refresh error: {e}")
+                return None
 
     async def send_multicast_push(
         self,
@@ -113,10 +127,18 @@ class FcmService:
         if not token_records:
             return 0
 
-        project_id = settings.FIREBASE_PROJECT_ID or "ur-heart-sanctuary"
-        fcm_url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
-        access_token = self._get_access_token()
+        # 3. Check configuration and obtain access token
+        project_id = settings.FIREBASE_PROJECT_ID
+        if not project_id:
+            logger.warning("FCM push aborted: FIREBASE_PROJECT_ID is not configured.")
+            return 0
 
+        access_token = await self._get_access_token()
+        if not access_token:
+            logger.warning("FCM push aborted: Google OAuth2 access token unavailable.")
+            return 0
+
+        fcm_url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
         success_count = 0
         tokens_to_deactivate = []
 
@@ -146,7 +168,7 @@ class FcmService:
                 }
 
                 headers = {
-                    "Authorization": f"Bearer {access_token or 'mock-bearer-token'}",
+                    "Authorization": f"Bearer {access_token}",
                     "Content-Type": "application/json",
                 }
 
@@ -154,15 +176,21 @@ class FcmService:
                     res = await client.post(fcm_url, json=payload, headers=headers, timeout=5.0)
                     if res.status_code == 200:
                         success_count += 1
-                    elif res.status_code in (404, 410) or "UNREGISTERED" in res.text or "INVALID_ARGUMENT" in res.text:
-                        logger.warning(f"FCM token {record.token[:12]}... stale or unregistered. Deactivating.")
+                    elif res.status_code in (404, 410) or "UNREGISTERED" in res.text:
+                        logger.warning(f"FCM token {record.token[:12]}... unregistered. Deactivating.")
+                        tokens_to_deactivate.append(record)
+                    elif "INVALID_ARGUMENT" in res.text and (
+                        "registration-token-not-registered" in res.text.lower()
+                        or "invalid token" in res.text.lower()
+                    ):
+                        logger.warning(f"FCM token {record.token[:12]}... invalid registration token. Deactivating.")
                         tokens_to_deactivate.append(record)
                     else:
                         logger.warning(f"FCM delivery status {res.status_code}: {res.text}")
                 except Exception as ex:
                     logger.error(f"FCM dispatch network error for token {record.token[:12]}...: {ex}")
 
-        # 3. Self-healing stale token pruning
+        # 4. Self-healing stale token pruning
         if tokens_to_deactivate:
             for dead_record in tokens_to_deactivate:
                 dead_record.is_active = False

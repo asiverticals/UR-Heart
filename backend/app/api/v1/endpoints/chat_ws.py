@@ -26,6 +26,9 @@ router = APIRouter()
 # WebSocket Router mounted at root for /ws/chat
 ws_router = APIRouter()
 
+# Retain strong references to background asyncio tasks to prevent premature garbage collection
+_background_tasks: set[asyncio.Task] = set()
+
 async def get_db_session(websocket: WebSocket) -> AsyncGenerator[AsyncSession, None]:
     """Resolves an async database session, utilizing FastAPI test overrides if present."""
     override = websocket.app.dependency_overrides.get(get_db)
@@ -261,7 +264,7 @@ async def _handle_chat_websocket(
                         await session.commit()
                     else:
                         # Recipient offline -> dispatch FCM background push
-                        asyncio.create_task(
+                        task = asyncio.create_task(
                             fcm_service.send_multicast_push(
                                 user_id=recipient_uuid,
                                 title="UR-Heart Sanctuary",
@@ -270,6 +273,8 @@ async def _handle_chat_websocket(
                                 channel_id="channel_kinship_dialogue",
                             )
                         )
+                        _background_tasks.add(task)
+                        task.add_done_callback(_background_tasks.discard)
 
                     # Acknowledge sender with delivery status
                     await websocket.send_json({
