@@ -11,6 +11,7 @@ class SanctuaryResponse(BaseModel, Generic[T]):
     success: bool = Field(default=True, description="Indicates operation success")
     data: Optional[T] = Field(default=None, description="Typed payload")
     message: Optional[str] = Field(default=None, description="Human readable contextual message")
+    meta: Optional[dict[str, Any]] = Field(default=None, description="Optional metadata dictionary")
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="ISO 8601 UTC timestamp",

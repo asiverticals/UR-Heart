@@ -39,5 +39,5 @@ class WsTicketResponse(BaseModel):
     ticket: str = Field(..., description="Single-use 32-byte cryptographic token")
     expires_in: int = Field(default=60, description="Ticket validity window in seconds")
     expires_in_seconds: int = Field(default=60, description="Ticket validity window in seconds (legacy)")
-    ws_url: str = Field(default="wss://urheart.app/ws/chat", description="WSS target gateway URL")
-    endpoint_url: str = Field(default="wss://urheart.app/ws/chat", description="WSS target gateway URL (legacy)")
+    ws_url: str = Field(..., description="WSS target gateway URL")
+    endpoint_url: str = Field(..., description="WSS target gateway URL (legacy)")

@@ -71,6 +71,13 @@ def test_slumber_rest_multipliers():
     assert r3["boost_points_awarded"] == 25
     assert r3["direct_letters_awarded"] == 2
 
+    # Unverified: >= 8.0 hours but unverified -> base tier 1.0x (10 swipes, 10 points, 0 letters)
+    r_unverified = engine.calculate_morning_reward(8.5, is_verified=False)
+    assert r_unverified["multiplier"] == 1.0
+    assert r_unverified["swipes_awarded"] == 10
+    assert r_unverified["boost_points_awarded"] == 10
+    assert r_unverified["direct_letters_awarded"] == 0
+
 @pytest.mark.asyncio
 async def test_morning_harvest_once_per_day_idempotency(db_session, make_user):
     """Test 4: Attempting to claim morning harvest twice on the same calendar day raises 400."""

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select, or_, and_, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ....core.config import settings
 from ....core.database import AsyncSessionLocal, get_db
 from ....core.ws_ticket_store import ws_ticket_store, get_ws_ticket_store, WsTicketStore
 from ....core.ws_manager import connection_manager, get_connection_manager, ConnectionManager
@@ -78,13 +79,14 @@ async def issue_ws_ticket(
     Prevents leaking long-lived JWT access tokens into URL query strings and proxy server logs.
     """
     ticket = await ticket_store.create_ticket(current_user.id, ttl_seconds=60)
+    ws_url = settings.WS_BASE_URL
     return SanctuaryResponse(
         data=WsTicketResponse(
             ticket=ticket,
             expires_in=60,
             expires_in_seconds=60,
-            ws_url="wss://urheart.app/ws/chat",
-            endpoint_url="wss://urheart.app/ws/chat",
+            ws_url=ws_url,
+            endpoint_url=ws_url,
         ),
         message="Ephemeral WebSocket ticket generated successfully.",
     )
@@ -217,6 +219,7 @@ async def _handle_chat_websocket(
                             "type": "error",
                             "error_code": "MATCH_NOT_FOUND_OR_INACTIVE",
                             "message": "Seeker is not an active participant in this dialogue match.",
+                            "client_id": client_id,
                         })
                         break
 

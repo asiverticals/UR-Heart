@@ -51,6 +51,7 @@ async def claim_morning_harvest(
         user=current_user,
         sleep_hours=payload.sleep_duration_hours,
         session=db,
+        is_verified=payload.is_verified,
     )
     return SanctuaryResponse(
         data=HarvestClaimResponse.model_validate(result),

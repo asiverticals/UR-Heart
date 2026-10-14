@@ -282,7 +282,7 @@ class _ChatDialogueScreenState extends ConsumerState<ChatDialogueScreen> {
     required bool isSender,
     required SanctuaryGlassTokens tokens,
   }) {
-    final timeStr = DateFormat('hh:mm a').format(message.createdAt);
+    final timeStr = DateFormat('hh:mm a').format(message.createdAt.toLocal());
 
     return Align(
       alignment: isSender ? Alignment.centerRight : Alignment.centerLeft,

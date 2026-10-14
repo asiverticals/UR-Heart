@@ -100,7 +100,12 @@ class ChatDialogueController extends StateNotifier<ChatDialogueState> {
     _eventSubscription?.cancel();
     _eventSubscription = _wsService.eventStream.listen(_handleSocketFrame);
 
-    // 2. Fetch history from backend
+    // 2. Ensure WebSocket is connected before dispatching read receipts
+    if (!_wsService.isConnected) {
+      await _wsService.connect();
+    }
+
+    // 3. Fetch history from backend
     try {
       final res = await _httpClient.get('/api/v1/chat/messages/$matchId');
       final dataList = res['data'] as List<dynamic>? ?? const [];
@@ -108,15 +113,24 @@ class ChatDialogueController extends StateNotifier<ChatDialogueState> {
           .map((m) => ChatMessage.fromJson(m as Map<String, dynamic>))
           .toList();
 
+      final meta = res['meta'] as Map<String, dynamic>?;
+      final bool isActive = meta?['is_active'] ?? true;
+      final String? closureKey = meta?['closure_template_key']?.toString();
+      final bool isClosed = !isActive || (meta?['closure_status'] == 'closed');
+
       if (mounted) {
         state = state.copyWith(
           messages: historical.isNotEmpty ? historical : state.messages,
           isLoadingHistory: false,
+          isDialogueClosed: isClosed || state.isDialogueClosed,
+          closureTemplateKey: closureKey ?? state.closureTemplateKey,
         );
       }
 
-      // Mark unread messages as read
-      _wsService.sendReadReceipt(matchId: matchId, recipientId: _peerId);
+      // Mark unread messages as read only when connected and dialogue active
+      if (_peerId.isNotEmpty && _wsService.isConnected && !isClosed) {
+        _wsService.sendReadReceipt(matchId: matchId, recipientId: _peerId);
+      }
     } catch (e) {
       if (mounted) {
         state = state.copyWith(
@@ -124,11 +138,6 @@ class ChatDialogueController extends StateNotifier<ChatDialogueState> {
           errorMessage: e.toString(),
         );
       }
-    }
-
-    // 3. Ensure WebSocket is connected
-    if (!_wsService.isConnected) {
-      await _wsService.connect();
     }
   }
 
@@ -216,10 +225,32 @@ class ChatDialogueController extends StateNotifier<ChatDialogueState> {
           isPeerTyping: false,
         );
         break;
+
+      case 'error':
+        final errorCode = frame['error_code']?.toString();
+        final clientId = frame['client_id']?.toString();
+        final message = frame['message']?.toString();
+
+        if (errorCode == 'MATCH_NOT_FOUND_OR_INACTIVE') {
+          state = state.copyWith(isDialogueClosed: true);
+        }
+
+        if (clientId != null) {
+          final updated = state.messages.map((m) {
+            if (m.clientId == clientId) {
+              return m.copyWith(status: 'failed');
+            }
+            return m;
+          }).toList();
+          state = state.copyWith(messages: updated, errorMessage: message);
+        }
+        break;
     }
   }
 
-  /// Dispatches end-to-end encrypted text message to peer.
+  /// Dispatches encrypted/sanctuary text message to peer over secure TLS/WSS transport.
+  /// Note: Transport layer is protected via WSS and authenticated 60s ticket handshake;
+  /// application payload field is designated `encryptedText` for future client-side cipher integration.
   Future<void> sendTextMessage(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty || trimmed.length > 4096) return;

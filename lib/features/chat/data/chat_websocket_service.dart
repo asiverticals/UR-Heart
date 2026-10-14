@@ -67,6 +67,7 @@ class ChatWebSocketService {
 
       final uri = Uri.parse('$wsUrl?ticket=$ticket');
       _channel = _channelFactory(uri);
+      await _channel!.ready;
 
       _subscription = _channel!.stream.listen(
         _onMessageReceived,
@@ -152,12 +153,16 @@ class ChatWebSocketService {
     required String recipientId,
     required bool isTyping,
   }) {
-    _sendFrame({
-      'type': 'typing',
-      'match_id': matchId,
-      'recipient_id': recipientId,
-      'is_typing': isTyping,
-    });
+    try {
+      _sendFrame({
+        'type': 'typing',
+        'match_id': matchId,
+        'recipient_id': recipientId,
+        'is_typing': isTyping,
+      });
+    } catch (e) {
+      debugPrint('[ChatWS] Failed to send typing indicator: $e');
+    }
   }
 
   /// Sends read receipt confirmation frame.
@@ -165,23 +170,23 @@ class ChatWebSocketService {
     required String matchId,
     required String recipientId,
   }) {
-    _sendFrame({
-      'type': 'read_receipt',
-      'match_id': matchId,
-      'recipient_id': recipientId,
-    });
+    try {
+      _sendFrame({
+        'type': 'read_receipt',
+        'match_id': matchId,
+        'recipient_id': recipientId,
+      });
+    } catch (e) {
+      debugPrint('[ChatWS] Failed to send read receipt: $e');
+    }
   }
 
   void _sendFrame(Map<String, dynamic> frame) {
-    if (_channel != null) {
-      try {
-        _channel!.sink.add(jsonEncode(frame));
-      } catch (e) {
-        debugPrint('[ChatWS] Error sinking frame: $e');
-      }
-    } else {
-      debugPrint('[ChatWS] Cannot send frame: WebSocket is not connected.');
+    final channel = _channel;
+    if (channel == null) {
+      throw StateError('WebSocket is not connected.');
     }
+    channel.sink.add(jsonEncode(frame));
   }
 
   void _cleanupChannel() {

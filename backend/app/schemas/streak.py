@@ -12,6 +12,10 @@ class MorningHarvestClaimRequest(BaseModel):
         le=24.0,
         description="Hours of restful nocturnal sleep detected via accelerometer stillness",
     )
+    is_verified: bool = Field(
+        default=True,
+        description="True if nocturnal stillness was verified via accelerometer hardware sensor",
+    )
 
 class StreakStatusResponse(BaseModel):
     """Current mindful streak and circadian rhythm status."""

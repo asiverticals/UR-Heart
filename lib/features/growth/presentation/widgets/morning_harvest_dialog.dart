@@ -10,17 +10,20 @@ import '../../../../core/theme/widgets/sanctuary_glass_container.dart';
 /// Tier 3 Modal Glass dialog presenting restorative slumber multiplier and morning harvest rewards.
 class MorningHarvestDialog extends ConsumerStatefulWidget {
   final double sleepHours;
+  final String? userId;
   final VoidCallback? onHarvestSuccess;
 
   const MorningHarvestDialog({
     super.key,
     required this.sleepHours,
+    this.userId,
     this.onHarvestSuccess,
   });
 
   static Future<bool?> show(
     BuildContext context, {
     required double sleepHours,
+    String? userId,
     VoidCallback? onHarvestSuccess,
   }) {
     return showDialog<bool>(
@@ -29,6 +32,7 @@ class MorningHarvestDialog extends ConsumerStatefulWidget {
       barrierColor: Colors.black.withValues(alpha: 0.65),
       builder: (ctx) => MorningHarvestDialog(
         sleepHours: sleepHours,
+        userId: userId,
         onHarvestSuccess: onHarvestSuccess,
       ),
     );
@@ -65,8 +69,8 @@ class _MorningHarvestDialogState extends ConsumerState<MorningHarvestDialog> {
         body: {'sleep_duration_hours': widget.sleepHours},
       );
 
-      // Mark locally claimed in SlumberService
-      await ref.read(slumberServiceProvider).markHarvestClaimed();
+      // Mark locally claimed in SlumberService with account scoping
+      await ref.read(slumberServiceProvider).markHarvestClaimed(userId: widget.userId);
 
       // Invoke callback unconditionally upon success, ensuring parent notification
       // even if dialog is unmounted or dismissed during the network operation
@@ -74,10 +78,11 @@ class _MorningHarvestDialogState extends ConsumerState<MorningHarvestDialog> {
 
       if (!mounted) return;
 
+      final messenger = ScaffoldMessenger.of(context);
+      final message = response['data']?['message'] ?? response['message'] ?? 'Morning harvest blessed your sanctuary.';
       Navigator.of(context).pop(true);
 
-      final message = response['data']?['message'] ?? 'Morning harvest blessed your sanctuary.';
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           content: Text(message),
           backgroundColor: SanctuaryGlassTokens.brandPine,

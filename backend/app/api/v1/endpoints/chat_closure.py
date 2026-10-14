@@ -141,7 +141,7 @@ async def get_dialogue_messages(
     msg_stmt = (
         select(Message)
         .where(Message.match_id == match_id)
-        .order_by(Message.created_at.asc())
+        .order_by(Message.created_at.asc(), Message.id.asc())
     )
     msg_res = await db.execute(msg_stmt)
     messages = msg_res.scalars().all()
@@ -149,5 +149,10 @@ async def get_dialogue_messages(
     items = [MessageItemResponse.model_validate(m) for m in messages]
     return SanctuaryResponse(
         data=items,
+        meta={
+            "is_active": match.is_active,
+            "closure_status": match.closure_status,
+            "closure_template_key": match.closure_template_key,
+        },
         message="Dialogue messages retrieved successfully.",
     )

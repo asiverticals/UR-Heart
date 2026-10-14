@@ -87,7 +87,7 @@ class SlumberService {
 
     final prefs = await SharedPreferences.getInstance();
     final lastHarvestDate = prefs.getString(harvestKey(userId));
-    final todayString = _formatDate(current);
+    final todayString = _formatDate(current.toUtc());
 
     if (lastHarvestDate == todayString) {
       return false;
@@ -100,7 +100,7 @@ class SlumberService {
   Future<void> markHarvestClaimed({String? userId, DateTime? now}) async {
     final prefs = await SharedPreferences.getInstance();
     final current = now ?? DateTime.now();
-    await prefs.setString(harvestKey(userId), _formatDate(current));
+    await prefs.setString(harvestKey(userId), _formatDate(current.toUtc()));
   }
 
   /// Resets stored sleep timestamps for testing or new night tracking cycle.

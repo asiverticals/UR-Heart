@@ -18,7 +18,7 @@ class StreakEngine:
             if expires_at.tzinfo is None:
                 expires_at = expires_at.replace(tzinfo=timezone.utc)
 
-            if current_time > expires_at:
+            if current_time > expires_at and ((user.streak_count or 0) > 0 or (user.boost_points or 0) > 0):
                 user.streak_count = 0
                 user.boost_points = 0
                 return True
@@ -52,14 +52,19 @@ class StreakEngine:
         else:
             # Same day: refresh expiration window without inflating streak or boost points
             new_expiry = current_time + timedelta(hours=24)
-            if user.streak_expires_at is None or new_expiry > user.streak_expires_at:
+            if expires_at is None or new_expiry > expires_at:
                 user.streak_expires_at = new_expiry
             return False
 
-    def calculate_morning_reward(self, sleep_hours: float) -> Dict[str, Any]:
-        """Calculates tiered rest multiplier M_rest and reward inventory from sleep duration."""
+    def calculate_morning_reward(self, sleep_hours: float, is_verified: bool = True) -> Dict[str, Any]:
+        """Calculates tiered rest multiplier M_rest and reward inventory from sleep duration.
+        
+        If unverified, limits multiplier to base tier (1.0x).
+        """
         clamped_hours = max(0.0, min(12.0, float(sleep_hours)))
-        if clamped_hours >= 8.0:
+        if not is_verified:
+            multiplier = 1.0
+        elif clamped_hours >= 8.0:
             multiplier = 2.0
         elif clamped_hours >= 6.0:
             multiplier = 1.5
@@ -106,6 +111,7 @@ class StreakEngine:
         sleep_hours: float,
         session: AsyncSession,
         now: Optional[datetime] = None,
+        is_verified: bool = True,
     ) -> Dict[str, Any]:
         """Validates sleep duration, enforces daily idempotency, and provisions morning harvest rewards atomically."""
         current_time = now or datetime.now(timezone.utc)
@@ -134,7 +140,7 @@ class StreakEngine:
             )
 
         # 4. Calculate reward yield
-        reward = self.calculate_morning_reward(sleep_hours)
+        reward = self.calculate_morning_reward(sleep_hours, is_verified=is_verified)
 
         # 5. Atomic balance provisioning
         locked_user.swipes_remaining = (locked_user.swipes_remaining or 0) + reward["swipes_awarded"]
