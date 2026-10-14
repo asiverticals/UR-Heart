@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from datetime import datetime, timezone
@@ -16,6 +17,7 @@ from ....models.domain.user import User
 from ....models.domain.match_and_chat import Match, Message
 from ....schemas.base_response import SanctuaryResponse
 from ....schemas.chat import WsTicketResponse
+from ....services.fcm_service import fcm_service
 from ...deps import get_current_user
 
 # HTTP Router mounted under /api/v1/chat
@@ -257,6 +259,17 @@ async def _handle_chat_websocket(
                     if delivered:
                         msg.status = "delivered"
                         await session.commit()
+                    else:
+                        # Recipient offline -> dispatch FCM background push
+                        asyncio.create_task(
+                            fcm_service.send_multicast_push(
+                                user_id=recipient_uuid,
+                                title="UR-Heart Sanctuary",
+                                body="A thoughtful reflection has arrived in your dialogue.",
+                                data_payload={"match_id": str(match_uuid), "type": "chat_message"},
+                                channel_id="channel_kinship_dialogue",
+                            )
+                        )
 
                     # Acknowledge sender with delivery status
                     await websocket.send_json({

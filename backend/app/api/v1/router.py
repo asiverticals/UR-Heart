@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from .endpoints import auth, chat_closure, chat_ws, feed, health, kyc, media, revelation, streak
+from .endpoints import auth, chat_closure, chat_ws, feed, health, kyc, media, notifications, revelation, streak
 
 api_router = APIRouter()
 
@@ -27,5 +27,9 @@ api_router.include_router(streak.router, prefix="/streak", tags=["MindfulStreak"
 # 8. Real-time Dialogue & WebSocket Relay & Mindful Closure
 api_router.include_router(chat_ws.router, prefix="/chat", tags=["Chat"])
 api_router.include_router(chat_closure.router, prefix="/chat", tags=["Chat"])
+
+# 9. Background Push Notifications (FCM HTTP v1)
+api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
+
 
 

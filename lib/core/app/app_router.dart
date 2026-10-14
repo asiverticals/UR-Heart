@@ -106,14 +106,21 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/chat-dialogue',
-        builder: (context, state) => ChatDialogueScreen(
-          matchId: state.uri.queryParameters['match_id'] ??
-              state.uri.queryParameters['matchId'] ??
-              '',
-          peerId: state.uri.queryParameters['peer_id'] ??
-              state.uri.queryParameters['peerId'] ??
-              '',
-        ),
+        builder: (context, state) {
+          final extraMap = state.extra is Map ? (state.extra as Map) : null;
+          return ChatDialogueScreen(
+            matchId: state.uri.queryParameters['match_id'] ??
+                state.uri.queryParameters['matchId'] ??
+                extraMap?['match_id']?.toString() ??
+                extraMap?['matchId']?.toString() ??
+                '',
+            peerId: state.uri.queryParameters['peer_id'] ??
+                state.uri.queryParameters['peerId'] ??
+                extraMap?['peer_id']?.toString() ??
+                extraMap?['peerId']?.toString() ??
+                '',
+          );
+        },
       ),
       GoRoute(
         path: '/blind-date',

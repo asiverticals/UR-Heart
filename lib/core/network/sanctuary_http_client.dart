@@ -42,6 +42,13 @@ class SanctuaryHttpClient {
     return _sendRequest('DELETE', path, body: body);
   }
 
+  Future<Map<String, dynamic>> put(
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    return _sendRequest('PUT', path, body: body);
+  }
+
   Future<bool> _performTokenRefresh() async {
     final refreshToken = await _storage.readRefreshToken();
     if (refreshToken == null || refreshToken.isEmpty) return false;
@@ -95,6 +102,13 @@ class SanctuaryHttpClient {
           break;
         case 'DELETE':
           response = await _client.delete(
+            uri,
+            headers: headers,
+            body: jsonEncode(body ?? {}),
+          ).timeout(requestTimeout);
+          break;
+        case 'PUT':
+          response = await _client.put(
             uri,
             headers: headers,
             body: jsonEncode(body ?? {}),

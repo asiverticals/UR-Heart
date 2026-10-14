@@ -61,6 +61,12 @@ from .media import (
     PresignedUploadResponse,
     MomentDeleteResponse,
 )
+from .notification import (
+    DeviceTokenRegisterRequest,
+    DeviceTokenUnregisterRequest,
+    NotificationPreferencesRequest,
+    NotificationPreferencesResponse,
+)
 
 __all__ = [
     # Base Responses
@@ -119,4 +125,9 @@ __all__ = [
     "PresignedUploadRequest",
     "PresignedUploadResponse",
     "MomentDeleteResponse",
+    # Notifications
+    "DeviceTokenRegisterRequest",
+    "DeviceTokenUnregisterRequest",
+    "NotificationPreferencesRequest",
+    "NotificationPreferencesResponse",
 ]
