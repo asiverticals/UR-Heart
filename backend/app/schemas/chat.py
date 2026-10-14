@@ -28,6 +28,7 @@ class PassWithGraceClosureRequest(BaseModel):
     """Gentle dialogue closure payload dissolving connection with intentional closure note."""
     model_config = ConfigDict(extra="forbid")
 
+    match_id: UUID = Field(..., description="Active dialogue match identifier")
     closure_template_key: str = Field(..., max_length=50, description="Pre-scripted sanctuary closure template identifier")
     closure_note: Optional[str] = Field(None, max_length=300, description="Optional custom farewell message")
 
