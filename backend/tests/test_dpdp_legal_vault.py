@@ -177,8 +177,9 @@ async def test_data_portability_sanitized_export(db_session, make_user):
     db_session.add_all([u1, u2])
     await db_session.flush()
 
-    # Add match
-    match = Match(user1_id=u1.id, user2_id=u2.id, is_active=True, closure_status="active")
+    # Add match (respect user1_id < user2_id constraint)
+    p1, p2 = (u1.id, u2.id) if u1.id < u2.id else (u2.id, u1.id)
+    match = Match(user1_id=p1, user2_id=p2, is_active=True, closure_status="active")
     # Add consent
     consent = ConsentAuditLog(
         user_id=u1.id,

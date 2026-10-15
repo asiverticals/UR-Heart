@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from .endpoints import ads, auth, chat_closure, chat_ws, feed, health, kyc, legal, media, notifications, payments, revelation, store, streak
+from .endpoints import ads, auth, chat_closure, chat_ws, feed, health, incineration, kyc, legal, media, notifications, payments, revelation, store, streak
 
 api_router = APIRouter()
 
@@ -43,6 +43,8 @@ api_router.include_router(ads.router, prefix="/ads", tags=["RewardedAds"])
 # 13. DPDP Act 2023 Legal Vault & Statutory Grievance Dossier
 api_router.include_router(legal.router, prefix="/legal", tags=["LegalVault"])
 api_router.include_router(legal.router, prefix="/vault", tags=["LegalVault"])
+api_router.include_router(incineration.router, prefix="/legal", tags=["AccountIncineration"])
+api_router.include_router(incineration.router, prefix="/vault", tags=["AccountIncineration"])
 
 
 

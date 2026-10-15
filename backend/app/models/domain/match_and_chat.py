@@ -89,7 +89,7 @@ class Match(Base):
         UniqueConstraint("user1_id", "user2_id", name="uq_matches_pair"),
         CheckConstraint("user1_id <> user2_id", name="chk_matches_no_self_match"),
         CheckConstraint("user1_id < user2_id", name="chk_matches_ordered_pair"),
-        CheckConstraint("closure_status IN ('active', 'closed_with_grace', 'unmatched')", name="chk_matches_closure_status"),
+        CheckConstraint("closure_status IN ('active', 'closed_with_grace', 'unmatched', 'peer_incinerated')", name="chk_matches_closure_status"),
     )
 
 class Message(Base):

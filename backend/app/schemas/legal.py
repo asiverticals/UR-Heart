@@ -71,3 +71,14 @@ class WebAccountDeletionRequest(BaseModel):
     email: EmailStr = Field(..., description="Seeker registered account email")
     reason: Optional[str] = Field(None, max_length=500, description="Voluntary departure feedback")
 
+class AccountIncinerateRequest(BaseModel):
+    """Authenticated account incineration request under DPDP Section 12."""
+    confirmation_phrase: Literal["PERMANENTLY INCINERATE"]
+    reason: Optional[str] = Field(None, max_length=500, description="Voluntary departure feedback")
+    model_config = ConfigDict(extra="forbid")
+
+class MagicLinkVerifyRequest(BaseModel):
+    """Web deletion confirmation request carrying statutory magic link token."""
+    token: str = Field(..., min_length=1, max_length=128, description="Cryptographic web deletion token")
+    model_config = ConfigDict(extra="forbid")
+
