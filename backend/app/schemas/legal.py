@@ -35,9 +35,39 @@ class DataNomineeRequest(BaseModel):
     nominee_contact: str = Field(..., min_length=5, max_length=30, description="Phone number or verified email")
     relationship: str = Field(..., min_length=2, max_length=30, description="Kinship relationship to seeker")
 
+class NomineeResponse(BaseModel):
+    """Digital nominee state under DPDP Act 2023 Section 14."""
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    nominee_name: str = Field(..., description="Full name of designated digital nominee")
+    nominee_contact: str = Field(..., description="Phone number or email")
+    relationship: str = Field(..., description="Kinship relationship to seeker")
+    assigned_at: Optional[str] = Field(None, description="ISO timestamp of designation")
+    verification_status: str = Field(default="designated", description="Nominee state")
+
+class GrievanceDossierItem(BaseModel):
+    """Itemized grievance dossier in seeker's legal vault."""
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    dossier_reference_id: str
+    violation_category: str
+    evidence_text: str
+    status: str
+    acknowledgment_sent_at: str
+    statutory_resolution_due_at: str
+    created_at: str
+
+class DataExportResponse(BaseModel):
+    """DPDP Act Section 11 machine-readable data portability payload."""
+    model_config = ConfigDict(extra="forbid")
+
+    export_data: dict = Field(..., description="Sanitized seeker data archive")
+    generated_at: str = Field(..., description="Archive compilation timestamp")
+
 class WebAccountDeletionRequest(BaseModel):
     """Public web endpoint account incineration request under DPDP Section 12."""
     model_config = ConfigDict(extra="forbid")
 
     email: EmailStr = Field(..., description="Seeker registered account email")
     reason: Optional[str] = Field(None, max_length=500, description="Voluntary departure feedback")
+

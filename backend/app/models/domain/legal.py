@@ -54,6 +54,17 @@ class DataNominee(Base):
         server_default=func.now(),
         nullable=False,
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMPTZ,
+        server_default=func.now(),
+        nullable=False,
+    )
+    verification_status: Mapped[str] = mapped_column(
+        String(30),
+        default="designated",
+        server_default="designated",
+        nullable=False,
+    )
 
 class DataExportRequest(Base):
     __tablename__ = "data_export_requests"
@@ -125,14 +136,21 @@ class GrievanceDossier(Base):
         nullable=True,
     )
     violation_category: Mapped[str] = mapped_column(String(50), nullable=False)
-    statutory_notes: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_text: Mapped[str] = mapped_column(Text, default="", server_default="", nullable=False)
+    statutory_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default="", server_default="")
     status: Mapped[str] = mapped_column(
         String(20),
-        default="received",
-        server_default="received",
+        default="acknowledged",
+        server_default="acknowledged",
         nullable=False,
     )
-    sla_deadline_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, nullable=False)
+    acknowledgment_sent_at: Mapped[datetime] = mapped_column(
+        TIMESTAMPTZ,
+        server_default=func.now(),
+        nullable=False,
+    )
+    statutory_resolution_due_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMPTZ, nullable=True)
+    sla_deadline_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMPTZ, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMPTZ,
         server_default=func.now(),
@@ -142,11 +160,11 @@ class GrievanceDossier(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "violation_category IN ('harassment', 'underage_suspicion', 'impersonation', 'inappropriate_content', 'fraud', 'other')",
+            "violation_category IN ('harassment', 'explicit_content', 'impersonation', 'underage', 'offplatform_leak', 'underage_suspicion', 'inappropriate_content', 'fraud', 'other')",
             name="chk_grievance_category",
         ),
         CheckConstraint(
-            "status IN ('received', 'investigating', 'resolved', 'dismissed')",
+            "status IN ('received', 'investigating', 'resolved', 'dismissed', 'acknowledged', 'under_review', 'actioned')",
             name="chk_grievance_status",
         ),
         CheckConstraint(

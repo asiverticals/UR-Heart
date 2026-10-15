@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from .endpoints import ads, auth, chat_closure, chat_ws, feed, health, kyc, media, notifications, payments, revelation, store, streak
+from .endpoints import ads, auth, chat_closure, chat_ws, feed, health, kyc, legal, media, notifications, payments, revelation, store, streak
 
 api_router = APIRouter()
 
@@ -39,6 +39,11 @@ api_router.include_router(payments.router, prefix="/payments", tags=["Payments"]
 
 # 12. 5-Network Ad SSV Waterfall & Anti-Bot Cooling
 api_router.include_router(ads.router, prefix="/ads", tags=["RewardedAds"])
+
+# 13. DPDP Act 2023 Legal Vault & Statutory Grievance Dossier
+api_router.include_router(legal.router, prefix="/legal", tags=["LegalVault"])
+api_router.include_router(legal.router, prefix="/vault", tags=["LegalVault"])
+
 
 
 

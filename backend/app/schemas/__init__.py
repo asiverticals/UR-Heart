@@ -50,6 +50,9 @@ from .legal import (
     GrievanceSubmitRequest,
     GrievanceResponse,
     DataNomineeRequest,
+    NomineeResponse,
+    GrievanceDossierItem,
+    DataExportResponse,
     WebAccountDeletionRequest,
 )
 from .streak import (
@@ -118,6 +121,9 @@ __all__ = [
     "GrievanceSubmitRequest",
     "GrievanceResponse",
     "DataNomineeRequest",
+    "NomineeResponse",
+    "GrievanceDossierItem",
+    "DataExportResponse",
     "WebAccountDeletionRequest",
     # Streak & Slumber
     "MorningHarvestClaimRequest",
