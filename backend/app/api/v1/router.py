@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from .endpoints import auth, chat_closure, chat_ws, feed, health, kyc, media, notifications, revelation, store, streak
+from .endpoints import auth, chat_closure, chat_ws, feed, health, kyc, media, notifications, payments, revelation, store, streak
 
 api_router = APIRouter()
 
@@ -33,6 +33,9 @@ api_router.include_router(notifications.router, prefix="/notifications", tags=["
 
 # 10. Sovereign Store & Monetization Catalog (Condition C2)
 api_router.include_router(store.router, prefix="/store", tags=["Store"])
+
+# 11. Razorpay Payment Gateway & Webhook Ingestion
+api_router.include_router(payments.router, prefix="/payments", tags=["Payments"])
 
 
 

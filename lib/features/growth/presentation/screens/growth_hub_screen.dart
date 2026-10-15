@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_typography.dart';
 import '../../../../core/theme/glass_tokens.dart';
 import '../../../../core/theme/widgets/sanctuary_glass_container.dart';
+import '../../data/payment_service.dart';
 import '../../data/store_catalog_model.dart';
 import '../controllers/growth_hub_controller.dart';
 import '../widgets/morning_harvest_dialog.dart';
@@ -39,6 +40,18 @@ class _GrowthHubScreenState extends ConsumerState<GrowthHubScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(growthHubControllerProvider.notifier).fetchStoreCatalog();
     });
+  }
+
+  void _handleProductTap(StoreProduct product) {
+    if (widget.onProductTap != null) {
+      widget.onProductTap!(product);
+    } else {
+      ref.read(sanctuaryPaymentServiceProvider).initiateProductPurchase(
+            context: context,
+            product: product,
+            ref: ref,
+          );
+    }
   }
 
   @override
@@ -581,7 +594,7 @@ class _GrowthHubScreenState extends ConsumerState<GrowthHubScreen> {
               const SizedBox(height: 8),
               InkWell(
                 onTap: () {
-                  widget.onProductTap?.call(product);
+                  _handleProductTap(product);
                 },
                 borderRadius: BorderRadius.circular(10),
                 child: Container(
@@ -767,7 +780,7 @@ class _GrowthHubScreenState extends ConsumerState<GrowthHubScreen> {
           const SizedBox(width: 8),
           ElevatedButton(
             onPressed: () {
-              widget.onProductTap?.call(pass);
+              _handleProductTap(pass);
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: SanctuaryGlassTokens.brandSacredGold,

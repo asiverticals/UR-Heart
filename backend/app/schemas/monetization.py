@@ -21,6 +21,14 @@ class RazorpayOrderCreate(BaseModel):
                 raise ValueError("USD billing is disabled under condition C2 until global milestone activation")
         return v
 
+class RazorpayOrderResponse(BaseModel):
+    """Server-side generated Razorpay order response payload."""
+    order_id: str = Field(..., description="Authoritative Razorpay order ID (e.g., order_...)")
+    amount: float = Field(..., description="Amount in INR rupees")
+    amount_paise: int = Field(..., description="Amount in integer paise subunit")
+    currency: str = Field("INR", description="Order currency")
+    key_id: str = Field(..., description="Public Razorpay key ID")
+
 class RazorpayPaymentVerify(BaseModel):
     """HMAC-SHA256 signature verification payload upon checkout completion."""
     model_config = ConfigDict(extra="forbid")
@@ -28,6 +36,7 @@ class RazorpayPaymentVerify(BaseModel):
     razorpay_order_id: str = Field(..., max_length=150)
     razorpay_payment_id: str = Field(..., max_length=150)
     razorpay_signature: str = Field(..., max_length=256)
+    product_identifier: Optional[str] = Field(None, max_length=60, description="Product identifier SKU")
 
 class InAppPurchaseVerifyRequest(BaseModel):
     """Google Play Billing purchase token validation request."""
