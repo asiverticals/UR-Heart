@@ -37,3 +37,18 @@ services:
         value: ur-heart-99d1d
       - key: FIREBASE_SERVICE_ACCOUNT_JSON
         sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_B64
+        sync: false
+      - key: FIREBASE_WEB_API_KEY
+        value: AIzaSyCC-w3SaTg17DgAYH4dNLDYqwPGJ5uD6cU
+      - key: GOOGLE_SERVER_CLIENT_ID
+        value: 336810105655-web.apps.googleusercontent.com
+      - key: RESEND_FROM
+        value: "UR-Heart Sanctuary <verify@urheart.app>"
+      - key: SMTP_FROM
+        value: "UR-Heart Sanctuary <verify@urheart.app>"
+      - key: WS_BASE_URL
+        value: wss://urheart.app/ws/chat
+      - key: SUPERADMIN_SECRET_KEY
+        generateValue: true
+

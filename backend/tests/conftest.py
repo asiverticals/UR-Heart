@@ -10,6 +10,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from backend.app.models.domain import Base, User
+from backend.app.core.config import settings
+
+settings.TESTING = True
+settings.ENVIRONMENT = "test"
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 

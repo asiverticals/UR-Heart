@@ -71,6 +71,15 @@ from .notification import (
     NotificationPreferencesRequest,
     NotificationPreferencesResponse,
 )
+from .admin import (
+    AdminKycEscalationItem,
+    AdminKycDecisionRequest,
+    AdminKycDecisionResponse,
+)
+from .eva import (
+    EvaBioPolishRequest,
+    EvaBioPolishResponse,
+)
 
 __all__ = [
     # Base Responses
@@ -138,4 +147,11 @@ __all__ = [
     "DeviceTokenUnregisterRequest",
     "NotificationPreferencesRequest",
     "NotificationPreferencesResponse",
+    # Superadmin KYC Desk
+    "AdminKycEscalationItem",
+    "AdminKycDecisionRequest",
+    "AdminKycDecisionResponse",
+    # Eva AI Reflection
+    "EvaBioPolishRequest",
+    "EvaBioPolishResponse",
 ]

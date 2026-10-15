@@ -61,7 +61,8 @@ async def request_presigned_upload_url(
         object_key = f"users/{current_user.id}/voice/spark.m4a"
         max_bytes = MAX_VOICE_BYTES
 
-    upload_url = storage.generate_presigned_put_url(
+    upload_url = await asyncio.to_thread(
+        storage.generate_presigned_put_url,
         key=object_key,
         content_type=req.content_type,
         content_length=req.file_size_bytes,

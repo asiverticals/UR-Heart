@@ -8,6 +8,7 @@ import '../../../../core/theme/widgets/sanctuary_glass_container.dart';
 import '../controllers/profile_setup_controller.dart';
 import '../widgets/photo_slot_grid.dart';
 import '../widgets/voice_spark_recorder_widget.dart';
+import '../widgets/eva_polish_modal.dart';
 
 /// Master ProfileSetupScreen for Phase 4 Chunk 4.2 onboarding.
 /// Incorporates 5-slot photo grid, voice spark recorder, core identity fields,
@@ -65,10 +66,28 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   }
 
   void _onEvaPolishSuggestion() {
-    const polishedSample =
-        'Seeker of conscious dialogue and stillness. Passionate about philosophy, sacred architecture, and mindful living. Intentional connections over algorithmic noise.';
-    _bioController.text = polishedSample;
-    ref.read(profileSetupControllerProvider.notifier).updateTextFields(bio: polishedSample);
+    final currentDraft = _bioController.text.trim();
+    final nonWsCount = currentDraft.replaceAll(RegExp(r'\s+'), '').length;
+    if (nonWsCount < 10) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please write at least 10 characters in your bio for Eva to polish.'),
+          backgroundColor: Color(0xFFE27D60),
+        ),
+      );
+      return;
+    }
+
+    EvaPolishModal.show(
+      context: context,
+      rawBio: currentDraft,
+      profession: _professionController.text.trim(),
+      education: _educationController.text.trim(),
+      onApply: (polished) {
+        _bioController.text = polished;
+        ref.read(profileSetupControllerProvider.notifier).updateTextFields(bio: polished);
+      },
+    );
   }
 
   Future<void> _submitProfile() async {

@@ -161,6 +161,47 @@ class PaymentService:
         computed = hmac.new(secret, raw_body, hashlib.sha256).hexdigest()
         return hmac.compare_digest(computed, signature_header)
 
+    def verify_stripe_signature(self, raw_body: bytes, sig_header: str) -> bool:
+        """Constant-time HMAC-SHA256 validation of Stripe webhook signature header."""
+        if not settings.STRIPE_WEBHOOK_SECRET or not sig_header:
+            return False
+        timestamp = None
+        signatures = []
+        for item in sig_header.split(","):
+            if "=" in item:
+                k, v = item.split("=", 1)
+                if k.strip() == "t":
+                    timestamp = v.strip()
+                elif k.strip() == "v1":
+                    signatures.append(v.strip())
+        if not timestamp or not signatures:
+            return False
+        try:
+            # 5-minute replay tolerance window
+            if abs(time.time() - int(timestamp)) > 300:
+                return False
+        except (ValueError, TypeError):
+            return False
+        signed_payload = f"{timestamp}.".encode("utf-8") + raw_body
+        expected = hmac.new(
+            settings.STRIPE_WEBHOOK_SECRET.encode("utf-8"),
+            signed_payload,
+            hashlib.sha256,
+        ).hexdigest()
+        return any(hmac.compare_digest(expected, sig) for sig in signatures)
+
+    def verify_revenuecat_authorization(self, auth_header: Optional[str]) -> bool:
+        """Constant-time validation of RevenueCat webhook bearer authorization secret."""
+        if not settings.REVENUECAT_WEBHOOK_SECRET or not auth_header:
+            return False
+        token = auth_header.strip()
+        if token.lower().startswith("bearer "):
+            token = token[7:].strip()
+        return hmac.compare_digest(
+            settings.REVENUECAT_WEBHOOK_SECRET.encode("utf-8"),
+            token.encode("utf-8"),
+        )
+
     async def process_successful_payment(
         self,
         user_id: UUID,
@@ -169,9 +210,19 @@ class PaymentService:
         product_identifier: str,
         amount_gross: Optional[Decimal],
         session: AsyncSession,
+        store: str = "web_razorpay_india",
+        currency: str = "INR",
     ) -> Dict[str, Any]:
         """Idempotently records payment and provisions entitlements with atomic replay protection."""
-        # 1. Check existing transaction reference (Idempotency Defense)
+        # 1. Validate input
+        if amount_gross is not None and amount_gross < Decimal("0.00"):
+            raise SanctuaryException(
+                error_code="INVALID_PAYMENT_AMOUNT",
+                message="Payment gross amount cannot be negative.",
+                status_code=400,
+            )
+
+        # 2. Check existing transaction reference (Idempotency Defense)
         existing_res = await session.execute(
             select(InAppPurchase).where(InAppPurchase.transaction_reference == payment_id)
         )
@@ -185,7 +236,7 @@ class PaymentService:
                 "product_id": existing.product_identifier,
             }
 
-        # 2. Resolve & Lock User for atomic balance updates
+        # 3. Resolve & Lock User for atomic balance updates
         user_stmt = select(User).where(User.id == user_id).with_for_update()
         user_res = await session.execute(user_stmt)
         user = user_res.scalar_one_or_none()
@@ -196,21 +247,21 @@ class PaymentService:
                 status_code=404,
             )
 
-        # 3. Determine amount if missing
-        if amount_gross is None or amount_gross <= Decimal("0.00"):
+        # 4. Determine amount if missing
+        if amount_gross is None:
             product = self.catalog_map.get(product_identifier) or LEGACY_CATALOG.get(product_identifier)
             if product:
                 amount_gross = Decimal(str(product["inr_price"]))
             else:
                 amount_gross = Decimal("0.00")
 
-        # 4. Insert InAppPurchase & provision entitlements (canonical store: web_razorpay_india)
+        # 4. Insert InAppPurchase & provision entitlements
         purchase = InAppPurchase(
             user_id=user.id,
             transaction_reference=payment_id,
             product_identifier=product_identifier,
-            store="web_razorpay_india",
-            currency="INR",
+            store=store,
+            currency=currency or "INR",
             amount_gross=amount_gross,
             platform_fee=Decimal("0.00"),
             amount_net=amount_gross,

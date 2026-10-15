@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.exceptions import SanctuaryException
@@ -22,6 +22,7 @@ from ..models.domain.match_and_chat import Match, Message, Swipe
 from ..models.domain.monetization import AdRewardLedger, InAppPurchase, ProcessedAdTransaction
 from ..models.domain.revelation import PhotoRevealConsent
 from ..models.domain.user import User
+from .email_service import email_service
 from .storage_service import CloudflareR2StorageService, storage_service
 
 logger = logging.getLogger("urheart.account_incineration")
@@ -155,8 +156,7 @@ class AccountIncinerationService:
 
     async def send_web_deletion_email(self, email: str, confirmation_url: str) -> bool:
         """Dispatches statutory account incineration confirmation link to the seeker's email."""
-        # In production environments, this relays via transactional email client.
-        return True
+        return await email_service.send_incineration_confirmation(email, confirmation_url)
 
     async def dispatch_web_deletion_magic_link(
         self,
@@ -168,7 +168,7 @@ class AccountIncinerationService:
         email_clean = email.lower().strip()
         ident_hash = hashlib.sha256(email_clean.encode("utf-8")).hexdigest()[:12]
 
-        stmt = select(User).where(User.email == email)
+        stmt = select(User).where(func.lower(User.email) == email_clean)
         res = await session.execute(stmt)
         user = res.scalar_one_or_none()
 
@@ -204,10 +204,17 @@ class AccountIncinerationService:
         await session.commit()
 
         confirmation_url = f"https://urheart.app/delete-account?token={token}"
-        await self.send_web_deletion_email(user.email, confirmation_url)
-        logger.info(
-            f"[WEB-INCINERATION] Dispatched statutory verification link for identifier: {ident_hash}"
-        )
+        dispatched = await self.send_web_deletion_email(user.email, confirmation_url)
+        if not dispatched:
+            logger.warning(
+                f"[WEB-INCINERATION] Email dispatch failed for verification identifier: {ident_hash}"
+            )
+            await session.delete(web_del)
+            await session.commit()
+        else:
+            logger.info(
+                f"[WEB-INCINERATION] Dispatched statutory verification link for identifier: {ident_hash}"
+            )
 
         return True
 

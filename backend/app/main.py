@@ -16,6 +16,18 @@ from .core.limiter import limiter, rate_limit_exceeded_handler
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan context manager validating production invariants on boot."""
     validate_production_secrets()
+    if settings.SENTRY_DSN:
+        try:
+            import sentry_sdk
+            sentry_sdk.init(
+                dsn=settings.SENTRY_DSN,
+                environment=settings.ENVIRONMENT,
+                traces_sample_rate=0.1,
+                send_default_pii=False,
+            )
+            logging.getLogger("urheart.main").info("Sentry monitoring initialized successfully")
+        except Exception as exc:
+            logging.getLogger("urheart.main").warning("Sentry init failed: %s", exc)
     yield
 
 app = FastAPI(
@@ -41,6 +53,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:8080",
     ],
+    allow_origin_regex=r"^https://([a-zA-Z0-9-]+\.)*urheart\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

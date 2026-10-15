@@ -20,8 +20,8 @@ class NomineeModel {
 
   factory NomineeModel.fromJson(Map<String, dynamic> json) {
     return NomineeModel(
-      name: json['nominee_name']?.toString() ?? '',
-      contact: json['nominee_contact']?.toString() ?? '',
+      name: json['nominee_name']?.toString() ?? json['full_name']?.toString() ?? json['name']?.toString() ?? '',
+      contact: json['nominee_contact']?.toString() ?? json['phone']?.toString() ?? json['contact']?.toString() ?? '',
       relationship: json['relationship']?.toString() ?? '',
       assignedAt: json['assigned_at']?.toString(),
       verificationStatus: json['verification_status']?.toString() ?? 'designated',
@@ -51,9 +51,9 @@ class GrievanceDossierModel {
 
   factory GrievanceDossierModel.fromJson(Map<String, dynamic> json) {
     return GrievanceDossierModel(
-      referenceId: json['dossier_reference_id']?.toString() ?? '',
-      category: json['violation_category']?.toString() ?? '',
-      evidence: json['evidence_text']?.toString() ?? '',
+      referenceId: json['dossier_reference_id']?.toString() ?? json['id']?.toString() ?? '',
+      category: json['violation_category']?.toString() ?? json['category']?.toString() ?? '',
+      evidence: json['evidence_text']?.toString() ?? json['evidence']?.toString() ?? '',
       status: json['status']?.toString() ?? 'acknowledged',
       acknowledgmentSentAt: json['acknowledgment_sent_at']?.toString() ?? '',
       statutoryResolutionDueAt: json['statutory_resolution_due_at']?.toString() ?? '',

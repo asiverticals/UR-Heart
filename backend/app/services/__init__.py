@@ -2,6 +2,8 @@ from .storage_service import CloudflareR2StorageService, get_storage_service, st
 from .payment_service import PaymentService, get_payment_service, payment_service
 from .ad_ssv_service import AdSsvService, get_ad_ssv_service, ad_ssv_service
 from .legal_vault_service import LegalVaultService, legal_vault_service
+from .admin_service import AdminService
+from .eva_service import EvaService
 
 __all__ = [
     "CloudflareR2StorageService",
@@ -15,5 +17,7 @@ __all__ = [
     "ad_ssv_service",
     "LegalVaultService",
     "legal_vault_service",
+    "AdminService",
+    "EvaService",
 ]
 

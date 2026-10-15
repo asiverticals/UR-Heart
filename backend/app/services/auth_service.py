@@ -18,6 +18,7 @@ from ..core.security import (
 from ..models.domain.legal import ConsumedMagicToken, UnderageQuarantineRegistry
 from ..models.domain.user import User
 from ..schemas.auth import TokenResponse
+from .email_service import email_service
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +175,14 @@ class AuthService:
         session: AsyncSession,
     ) -> bool:
         """Generates single-use cryptographic token and dispatches magic link."""
-        _ = create_magic_link_token(email)
+        token = create_magic_link_token(email)
+        import urllib.parse
+        encoded_token = urllib.parse.quote(token)
+        link_url = f"https://urheart.app/auth/verify-magic?token={encoded_token}"
+        dispatched = await email_service.send_magic_link(email, link_url)
+        if not dispatched:
+            logger.warning("Failed to dispatch magic link")
+            return False
         logger.debug("Magic link dispatched.")
         return True
 

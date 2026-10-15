@@ -6,7 +6,6 @@ import 'package:ur_heart/core/billing/sanctuary_billing_service.dart';
 import 'package:ur_heart/core/network/sanctuary_http_client.dart';
 import 'package:ur_heart/features/growth/data/payment_service.dart';
 import 'package:ur_heart/features/growth/data/store_catalog_model.dart';
-import 'package:ur_heart/features/growth/presentation/controllers/growth_hub_controller.dart';
 
 class MockSanctuaryHttpClient implements SanctuaryHttpClient {
   final List<String> requestedPaths = [];

@@ -29,6 +29,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Remap any peer_incinerated matches to unmatched before restoring constraint
+    op.execute("UPDATE matches SET closure_status = 'unmatched' WHERE closure_status = 'peer_incinerated'")
     with op.batch_alter_table('matches', schema=None) as batch_op:
         batch_op.drop_constraint('chk_matches_closure_status', type_='check')
         batch_op.create_check_constraint(

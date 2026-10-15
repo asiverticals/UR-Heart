@@ -14,6 +14,8 @@ import 'package:ur_heart/features/blind_date/presentation/controllers/blind_date
 import 'package:ur_heart/features/growth/presentation/controllers/growth_hub_controller.dart';
 import 'package:ur_heart/features/legal_vault/presentation/controllers/vault_controller.dart';
 import 'package:ur_heart/features/resonances/presentation/controllers/resonances_controller.dart';
+import 'package:ur_heart/features/navigation/presentation/screens/sanctuary_navigation_shell.dart';
+import 'package:ur_heart/features/admin/presentation/screens/superadmin_kyc_desk_screen.dart';
 
 class TestSecureStorage extends Fake implements FlutterSecureStorage {
   final Map<String, String> _data = {};
@@ -226,25 +228,28 @@ void main() {
             child: const UrHeartApp(),
           ),
         );
-        await tester.pumpAndSettle();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
 
         // Expect SanctuaryNavigationShell to be rendered at /main
-        expect(find.text('SanctuaryNavigationShell'), findsOneWidget);
+        expect(find.byType(SanctuaryNavigationShell), findsOneWidget);
 
         // Sub-test 2C: RBAC route guard (/admin/kyc-desk redirects non-admins to /main)
         final router = authContainer.read(goRouterProvider);
         router.go('/admin/kyc-desk');
-        await tester.pumpAndSettle();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
 
         // Non-admin user redirected back to /main (SanctuaryNavigationShell)
-        expect(find.text('SanctuaryNavigationShell'), findsOneWidget);
+        expect(find.byType(SanctuaryNavigationShell), findsOneWidget);
 
         // When user is superadmin, kyc-desk is accessible
         authContainer.read(currentUserProvider.notifier).state =
             const CurrentUser(id: 'admin_1', role: 'superadmin');
         router.go('/admin/kyc-desk');
-        await tester.pumpAndSettle();
-        expect(find.text('SuperadminKycDeskScreen'), findsOneWidget);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(find.byType(SuperadminKycDeskScreen), findsOneWidget);
       },
     );
 
@@ -356,7 +361,7 @@ void main() {
         final mockClient = FakeHttpClient();
 
         mockClient.onGet = (url, headers) async {
-          if (url.path == '/api/v1/vault/grievances') {
+          if (url.path == '/api/v1/vault/grievances' || url.path == '/api/v1/legal/grievances') {
             return http.Response(
               jsonEncode({
                 'data': [
@@ -369,7 +374,7 @@ void main() {
               }),
               200,
             );
-          } else if (url.path == '/api/v1/vault/nominee') {
+          } else if (url.path == '/api/v1/vault/nominee' || url.path == '/api/v1/legal/nominee') {
             return http.Response(
               jsonEncode({
                 'data': {
@@ -391,9 +396,9 @@ void main() {
         await controller.loadVaultData();
         expect(controller.state.isLoading, isFalse);
         expect(controller.state.grievances.length, 1);
-        expect(controller.state.grievances.first['id'], 'grv-99');
+        expect(controller.state.grievances.first.referenceId, 'grv-99');
         expect(controller.state.nominee, isNotNull);
-        expect(controller.state.nominee!['full_name'], 'Mira Ray');
+        expect(controller.state.nominee!.name, 'Mira Ray');
       },
     );
 
@@ -561,9 +566,9 @@ void main() {
       final mockClient = FakeHttpClient();
 
       mockClient.onGet = (url, headers) async {
-        if (url.path == '/api/v1/vault/grievances') {
+        if (url.path == '/api/v1/vault/grievances' || url.path == '/api/v1/legal/grievances') {
           return http.Response('{"data": []}', 200);
-        } else if (url.path == '/api/v1/vault/nominee') {
+        } else if (url.path == '/api/v1/vault/nominee' || url.path == '/api/v1/legal/nominee') {
           return http.Response('{"data": null}', 200);
         }
         return http.Response('{}', 200);
@@ -574,7 +579,11 @@ void main() {
 
       // Set pre-existing nominee
       controller.state = controller.state.copyWith(
-        nominee: {'name': 'Previous Nominee'},
+        nominee: const NomineeModel(
+          name: 'Previous Nominee',
+          contact: '+919999999999',
+          relationship: 'Sister',
+        ),
       );
 
       await controller.loadVaultData();
@@ -708,7 +717,7 @@ void main() {
       );
 
       // While stream hasn't emitted, router defers and does NOT show SanctuaryNavigationShell
-      expect(find.text('SanctuaryNavigationShell'), findsNothing);
+      expect(find.byType(SanctuaryNavigationShell), findsNothing);
 
       // Stream emits false (unauthenticated)
       streamController.add(false);

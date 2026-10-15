@@ -113,7 +113,7 @@ class AdSsvService:
     def verify_meta_ssv(self, query_params: Dict[str, str]) -> bool:
         """Verifies Meta Audience Network HMAC-SHA256 signature over callback parameters."""
         signature = query_params.get("signature") or query_params.get("sig")
-        secret = settings.META_APP_SECRET
+        secret = settings.META_APP_SECRET or settings.META_AUDIENCE_SSV_SECRET
         if not secret or not signature:
             return False
 
@@ -129,7 +129,7 @@ class AdSsvService:
     def verify_unity_ssv(self, query_params: Dict[str, str]) -> bool:
         """Verifies Unity Ads HMAC-SHA256/MD5 signature over sid and oid."""
         signature = query_params.get("hmac") or query_params.get("signature")
-        secret = settings.UNITY_ADS_SECRET
+        secret = settings.UNITY_ADS_SECRET or settings.UNITY_ADS_SSV_SECRET
         if not secret or not signature:
             return False
 
@@ -145,7 +145,7 @@ class AdSsvService:
     def verify_liftoff_ssv(self, query_params: Dict[str, str]) -> bool:
         """Verifies Liftoff (Vungle) token digest / SHA-256 transaction signature."""
         signature = query_params.get("digest") or query_params.get("signature")
-        secret = settings.LIFTOFF_API_SECRET
+        secret = settings.LIFTOFF_API_SECRET or settings.LIFTOFF_SSV_SECRET
         if not secret or not signature:
             return False
 
@@ -161,7 +161,7 @@ class AdSsvService:
     def verify_chartboost_ssv(self, query_params: Dict[str, str]) -> bool:
         """Verifies Chartboost digest over trans_id, user_id, reward, and secret."""
         signature = query_params.get("digest") or query_params.get("signature")
-        secret = settings.CHARTBOOST_APP_SECRET
+        secret = settings.CHARTBOOST_APP_SECRET or settings.CHARTBOOST_SSV_SECRET
         if not secret or not signature:
             return False
 

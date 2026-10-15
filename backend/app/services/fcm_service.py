@@ -1,8 +1,10 @@
 import asyncio
+import base64
 from datetime import datetime, timezone
 import json
 import logging
-from typing import Any, Dict, Optional
+import os
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 import google.auth.transport.requests
@@ -26,15 +28,37 @@ class FcmService:
         self.credentials: Optional[service_account.Credentials] = None
         self._auth_lock = asyncio.Lock()
 
+        # Multi-source credentials resolution: file path -> B64 string -> raw JSON
+        candidates: List[Dict[str, Any]] = []
+        if settings.FIREBASE_CREDENTIALS_PATH and os.path.exists(settings.FIREBASE_CREDENTIALS_PATH):
+            try:
+                with open(settings.FIREBASE_CREDENTIALS_PATH, "r", encoding="utf-8") as f:
+                    candidates.append(json.load(f))
+            except Exception as e:
+                logger.warning(f"Failed to read FIREBASE_CREDENTIALS_PATH: {e}")
+
+        if settings.FIREBASE_SERVICE_ACCOUNT_B64 and settings.FIREBASE_SERVICE_ACCOUNT_B64.strip():
+            try:
+                decoded = base64.b64decode(settings.FIREBASE_SERVICE_ACCOUNT_B64).decode("utf-8")
+                candidates.append(json.loads(decoded))
+            except Exception as e:
+                logger.warning(f"Failed to decode FIREBASE_SERVICE_ACCOUNT_B64: {e}")
+
         if settings.FIREBASE_SERVICE_ACCOUNT_JSON and settings.FIREBASE_SERVICE_ACCOUNT_JSON.strip() not in ("", "{}"):
             try:
-                info = json.loads(settings.FIREBASE_SERVICE_ACCOUNT_JSON)
-                if "client_email" in info and "private_key" in info:
-                    self.credentials = service_account.Credentials.from_service_account_info(
-                        info, scopes=self.scopes
-                    )
+                candidates.append(json.loads(settings.FIREBASE_SERVICE_ACCOUNT_JSON))
             except Exception as e:
-                logger.warning(f"FCM service account initialization skipped: {e}")
+                logger.warning(f"Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON: {e}")
+
+        for candidate in candidates:
+            if isinstance(candidate, dict) and "client_email" in candidate and "private_key" in candidate:
+                try:
+                    self.credentials = service_account.Credentials.from_service_account_info(
+                        candidate, scopes=self.scopes
+                    )
+                    break
+                except Exception as e:
+                    logger.warning(f"FCM candidate credential load failed: {e}")
 
     async def _get_access_token(self) -> Optional[str]:
         """Returns valid OAuth2 Bearer token, refreshing off-thread before expiry."""

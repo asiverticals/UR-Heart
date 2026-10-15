@@ -198,6 +198,155 @@ async def razorpay_webhook(
     return {"status": "ok"}
 
 
+# Note: UGX is zero-decimal in cash, but Stripe API requires amounts in cents (multiplied by 100), so it is excluded here.
+ZERO_DECIMAL_CURRENCIES = {
+    "BIF", "CLP", "DJF", "GNF", "JPY", "KMF", "KRW", "MGA",
+    "PYG", "RWF", "VND", "VUV", "XAF", "XOF", "XPF",
+}
+THREE_DECIMAL_CURRENCIES = {"BHD", "JOD", "KWD", "OMR", "TND"}
+
+
+def convert_stripe_amount(amount_subunits: Optional[int], currency: str) -> Optional[Decimal]:
+    """Converts Stripe integer subunits to Decimal major units respecting currency decimal rules."""
+    if amount_subunits is None:
+        return None
+    curr = (currency or "INR").upper()
+    if curr in ZERO_DECIMAL_CURRENCIES:
+        return Decimal(str(amount_subunits))
+    if curr in THREE_DECIMAL_CURRENCIES:
+        return Decimal(str(amount_subunits)) / Decimal("1000")
+    return Decimal(str(amount_subunits)) / Decimal("100")
+
+
+@router.post("/webhook/stripe", status_code=status.HTTP_200_OK)
+async def stripe_webhook(
+    request: Request,
+    stripe_signature: Optional[str] = Header(None, alias="Stripe-Signature"),
+    session: AsyncSession = Depends(get_db),
+) -> Dict[str, str]:
+    """Stripe webhook endpoint validating signature against HMAC replay attacks."""
+    raw_body = await request.body()
+    if not payment_service.verify_stripe_signature(raw_body, stripe_signature or ""):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cryptographic Stripe signature mismatch",
+        )
+
+    try:
+        event = json.loads(raw_body.decode("utf-8"))
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Malformed JSON in Stripe webhook body",
+        )
+
+    event_type = event.get("type")
+    if event_type in ("checkout.session.completed", "checkout.session.async_payment_succeeded"):
+        obj = event.get("data", {}).get("object", {})
+        if obj.get("payment_status") != "paid":
+            return {"status": "ignored_unpaid"}
+
+        metadata = obj.get("metadata") or {}
+        user_id_str = metadata.get("user_id")
+        product_id = metadata.get("product_id")
+        payment_id = obj.get("payment_intent") or obj.get("id")
+
+        if user_id_str and product_id and payment_id:
+            try:
+                user_uuid = UUID(user_id_str)
+                amount_cents = obj.get("amount") or obj.get("amount_total")
+                currency = (obj.get("currency") or "INR").upper()
+                amount_gross = convert_stripe_amount(amount_cents, currency)
+                await payment_service.process_successful_payment(
+                    user_id=user_uuid,
+                    order_id=obj.get("id", "stripe_order"),
+                    payment_id=payment_id,
+                    product_identifier=product_id,
+                    amount_gross=amount_gross,
+                    session=session,
+                    store="stripe_web",
+                    currency=currency,
+                )
+            except (ValueError, TypeError, ArithmeticError) as e:
+                logger.warning("Invalid data in Stripe webhook; ignoring non-retryable event: %s", e)
+            except SanctuaryException as se:
+                if se.status_code and se.status_code < 500:
+                    logger.warning("Non-retryable error in Stripe webhook: %s", se)
+                else:
+                    logger.error("Transient error in Stripe webhook: %s", se, exc_info=True)
+                    raise HTTPException(status_code=500, detail="Error processing payment webhook")
+            except Exception as e:
+                logger.error("Unexpected error in Stripe webhook: %s", e, exc_info=True)
+                raise HTTPException(status_code=500, detail="Error processing payment webhook")
+
+    return {"status": "ok"}
+
+
+@router.post("/webhook/revenuecat", status_code=status.HTTP_200_OK)
+async def revenuecat_webhook(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+    session: AsyncSession = Depends(get_db),
+) -> Dict[str, str]:
+    """RevenueCat webhook endpoint validating bearer secret and syncing subscription entitlements."""
+    if not payment_service.verify_revenuecat_authorization(authorization):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid RevenueCat authorization header",
+        )
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Malformed JSON in RevenueCat webhook body",
+        )
+
+    event = body.get("event", {})
+    if event.get("type") not in ("INITIAL_PURCHASE", "RENEWAL", "NON_RENEWING_PURCHASE"):
+        return {"status": "ok"}
+
+    app_user_id = event.get("app_user_id")
+    product_id = event.get("product_id")
+    tx_id = event.get("transaction_id")
+
+    if app_user_id and product_id and tx_id:
+        try:
+            user_uuid = UUID(app_user_id)
+        except (ValueError, TypeError):
+            logger.info("RevenueCat webhook received purchase for non-UUID app_user_id '%s'; skipping unlinked purchase", app_user_id)
+            return {"status": "skipped_unlinked_user"}
+
+        try:
+            price_usd = event.get("price_in_purchased_currency")
+            amount_gross = Decimal(str(price_usd)) if price_usd is not None else Decimal("0.00")
+            currency = (event.get("currency") or "INR").upper()
+            await payment_service.process_successful_payment(
+                user_id=user_uuid,
+                order_id=tx_id,
+                payment_id=tx_id,
+                product_identifier=product_id,
+                amount_gross=amount_gross,
+                session=session,
+                store="revenuecat_in_app",
+                currency=currency,
+            )
+        except (ValueError, TypeError, ArithmeticError) as e:
+            logger.warning("Invalid data in RevenueCat webhook; ignoring non-retryable event: %s", e)
+        except SanctuaryException as se:
+            if se.status_code and se.status_code < 500:
+                logger.warning("Non-retryable error in RevenueCat webhook: %s", se)
+            else:
+                logger.error("Transient error in RevenueCat webhook: %s", se, exc_info=True)
+                raise HTTPException(status_code=500, detail="Error processing payment webhook")
+        except Exception as e:
+            logger.error("Unexpected error in RevenueCat webhook: %s", e, exc_info=True)
+            raise HTTPException(status_code=500, detail="Error processing payment webhook")
+
+    return {"status": "ok"}
+
+
 @router.post(
     "/claim-web-entitlement",
     response_model=SanctuaryResponse[Dict[str, Any]],
