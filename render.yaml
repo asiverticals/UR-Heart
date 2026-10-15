@@ -33,3 +33,7 @@ services:
         value: ur-heart-media
       - key: R2_PUBLIC_DOMAIN
         value: https://media.urheart.app
+      - key: FIREBASE_PROJECT_ID
+        value: ur-heart-99d1d
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "336810105655",
+    "project_id": "ur-heart-99d1d",
+    "storage_bucket": "ur-heart-99d1d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:336810105655:android:31a02befdba3b61cf7d8b2",
+        "android_client_info": {
+          "package_name": "com.urheart.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCC-w3SaTg17DgAYH4dNLDYqwPGJ5uD6cU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
