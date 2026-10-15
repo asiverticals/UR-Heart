@@ -24,7 +24,7 @@ async def test_c2_currency_gating_hides_usd_when_disabled():
 
             assert data["currency"] == "INR"
             assert data["usd_enabled"] is False
-            assert len(data["products"]) == 8
+            assert len(data["products"]) == 6
 
             # Every product must have usd_price set to None under Condition C2
             for p in data["products"]:
@@ -32,18 +32,20 @@ async def test_c2_currency_gating_hides_usd_when_disabled():
                 assert p["currency_symbol"] == "₹"
                 assert p["inr_price"] > 0
 
-            # Verify exact product specifications
+            # Verify exact product specifications for 6 canonical SKUs
             skus = {p["id"]: p for p in data["products"]}
-            assert skus["direct_letter_single"]["inr_price"] == 29.0
-            assert skus["direct_letter_single"]["product_class"] == "micro_perk"
-            assert skus["profile_unlock_single"]["inr_price"] == 39.0
-            assert skus["super_like_pack_3"]["inr_price"] == 49.0
-            assert skus["spotlight_boost_24h"]["inr_price"] == 79.0
-            assert skus["sacred_bridge_instant"]["inr_price"] == 99.0
-            assert skus["pass_sovereign_weekly"]["inr_price"] == 299.0
-            assert skus["pass_sovereign_weekly"]["product_class"] == "pass"
-            assert skus["pass_sovereign_monthly"]["inr_price"] == 999.0
-            assert skus["pass_sovereign_quarter"]["inr_price"] == 2499.0
+            assert skus["pass_weekly"]["inr_price"] == 49.0
+            assert skus["pass_weekly"]["product_class"] == "pass"
+            assert skus["pass_monthly"]["inr_price"] == 149.0
+            assert skus["pass_monthly"]["product_class"] == "pass"
+            assert skus["pass_infinity"]["inr_price"] == 1499.0
+            assert skus["pass_infinity"]["product_class"] == "pass"
+            assert skus["contact_key_instant"]["inr_price"] == 29.0
+            assert skus["contact_key_instant"]["product_class"] == "micro_perk"
+            assert skus["direct_letters_pack_3"]["inr_price"] == 49.0
+            assert skus["direct_letters_pack_3"]["product_class"] == "micro_perk"
+            assert skus["passport_24h"]["inr_price"] == 99.0
+            assert skus["passport_24h"]["product_class"] == "micro_perk"
 
 @pytest.mark.asyncio
 async def test_c2_currency_gating_exposes_usd_when_enabled():
@@ -62,10 +64,42 @@ async def test_c2_currency_gating_exposes_usd_when_enabled():
                 assert p["inr_price"] > 0
 
             skus = {p["id"]: p for p in data["products"]}
-            assert skus["direct_letter_single"]["usd_price"] == 0.99
-            assert skus["pass_sovereign_weekly"]["usd_price"] == 9.99
-            assert skus["pass_sovereign_monthly"]["usd_price"] == 29.99
-            assert skus["pass_sovereign_quarter"]["usd_price"] == 49.99
+            assert skus["pass_weekly"]["usd_price"] == 0.99
+            assert skus["pass_monthly"]["usd_price"] == 2.99
+            assert skus["pass_infinity"]["usd_price"] == 29.99
+            assert skus["contact_key_instant"]["usd_price"] == 0.49
+            assert skus["direct_letters_pack_3"]["usd_price"] == 0.99
+            assert skus["passport_24h"]["usd_price"] == 1.99
+
+@pytest.mark.asyncio
+async def test_web_store_catalog_bonus_perks():
+    """Test: Web Store catalog endpoint preserves identical pricing while rendering +20% bonus perk badges."""
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get("/api/v1/store/catalog?is_web_store=true")
+        assert res.status_code == 200
+        data = res.json()["data"]
+        skus = {p["id"]: p for p in data["products"]}
+
+        assert skus["pass_weekly"]["inr_price"] == 49.0
+        assert "+20%" in skus["pass_weekly"]["badge_label"]
+        assert "120 Swipes" in skus["pass_weekly"]["description"]
+
+        assert skus["pass_monthly"]["inr_price"] == 149.0
+        assert "+20%" in skus["pass_monthly"]["badge_label"]
+        assert "600 Swipes" in skus["pass_monthly"]["description"]
+
+        assert skus["pass_infinity"]["inr_price"] == 1499.0
+        assert "+20%" in skus["pass_infinity"]["badge_label"]
+
+        assert skus["contact_key_instant"]["inr_price"] == 29.0
+        assert "+20%" in skus["contact_key_instant"]["badge_label"]
+
+        assert skus["direct_letters_pack_3"]["inr_price"] == 49.0
+        assert "+20%" in skus["direct_letters_pack_3"]["badge_label"]
+
+        assert skus["passport_24h"]["inr_price"] == 99.0
+        assert "+20%" in skus["passport_24h"]["badge_label"]
 
 @pytest.mark.asyncio
 async def test_get_store_balances(db_session, make_user):
@@ -106,7 +140,7 @@ async def test_get_store_balances(db_session, make_user):
 
 @pytest.mark.asyncio
 async def test_provision_user_entitlements(db_session, make_user):
-    """Test 4: provision_user_entitlements increments user balances correctly without race conditions."""
+    """Test 4: provision_user_entitlements increments user balances correctly for 6 canonical products."""
     user = make_user(
         full_name="Perk Seeker",
         is_profile_completed=True,
@@ -121,86 +155,73 @@ async def test_provision_user_entitlements(db_session, make_user):
     db_session.add(user)
     await db_session.commit()
 
-    # 1. Direct letter single
+    # 1. pass_weekly: +100 swipes, 7-day spark subscription
     r1 = await billing_entitlement_service.provision_user_entitlements(
         user=user,
-        product_identifier="direct_letter_single",
+        product_identifier="pass_weekly",
         session=db_session,
     )
-    assert r1["direct_letters_count"] == 2
-    assert user.direct_letters_count == 2
-
-    # 2. Spotlight boost 24h
-    r2 = await billing_entitlement_service.provision_user_entitlements(
-        user=user,
-        product_identifier="spotlight_boost_24h",
-        session=db_session,
-    )
-    assert r2["boost_points"] == 100
-    assert user.boost_points == 100
-
-    # 3. Profile unlock single
-    await billing_entitlement_service.provision_user_entitlements(
-        user=user,
-        product_identifier="profile_unlock_single",
-        session=db_session,
-    )
-    assert user.reveal_tokens_count == 2
-
-    # 4. Super like pack 3
-    r_sl = await billing_entitlement_service.provision_user_entitlements(
-        user=user,
-        product_identifier="super_like_pack_3",
-        session=db_session,
-    )
-    assert user.super_likes_count == 3
-    assert r_sl["super_likes_count"] == 3
-    assert user.reward_balance == 0
-
-    # 5. Sacred bridge instant
-    r_br = await billing_entitlement_service.provision_user_entitlements(
-        user=user,
-        product_identifier="sacred_bridge_instant",
-        session=db_session,
-    )
-    assert user.instant_bridge_passes == 1
-    assert r_br["instant_bridge_passes"] == 1
-    assert user.reward_balance == 0
-
-    # 6. Sovereign Pass Weekly
-    r_pass = await billing_entitlement_service.provision_user_entitlements(
-        user=user,
-        product_identifier="pass_sovereign_weekly",
-        session=db_session,
-    )
-    assert r_pass["subscription_tier"] == "spark"
-    assert r_pass["is_ad_free"] is True
+    assert user.swipes_remaining == 125
     assert user.subscription_tier == "spark"
     assert user.is_ad_free is True
-    assert user.swipes_remaining == 999
-    assert user.direct_letters_count == 7  # 2 previous + 5 granted
     assert user.subscription_expires_at is not None
 
-    # 7. Sovereign Pass Monthly
-    await billing_entitlement_service.provision_user_entitlements(
+    # 2. pass_monthly: +500 swipes, +5 direct letters, 30-day flame subscription
+    r2 = await billing_entitlement_service.provision_user_entitlements(
         user=user,
-        product_identifier="pass_sovereign_monthly",
+        product_identifier="pass_monthly",
         session=db_session,
     )
+    assert user.swipes_remaining == 625
+    assert user.direct_letters_count == 6  # 1 + 5
     assert user.subscription_tier == "flame"
-    assert user.is_voice_verified is True
-    assert user.direct_letters_count == 32  # 7 + 25
 
-    # 8. Sovereign Pass Quarter
-    await billing_entitlement_service.provision_user_entitlements(
+    # 3. pass_infinity: unlimited swipes, +15 direct letters, lifetime tier
+    r3 = await billing_entitlement_service.provision_user_entitlements(
         user=user,
-        product_identifier="pass_sovereign_quarter",
+        product_identifier="pass_infinity",
         session=db_session,
     )
-    assert user.subscription_tier == "kindred"
-    assert user.direct_letters_count == 107  # 32 + 75
+    assert user.has_unlimited_swipes is True
+    assert user.direct_letters_count == 21  # 6 + 15
+    assert user.subscription_tier == "lifetime"
 
-    # 9. Invalid SKU raises SanctuaryException
+    # 4. contact_key_instant: +1 instant contact key
+    r4 = await billing_entitlement_service.provision_user_entitlements(
+        user=user,
+        product_identifier="contact_key_instant",
+        session=db_session,
+    )
+    assert user.instant_contact_keys == 1
+
+    # 5. direct_letters_pack_3: +3 direct letters
+    r5 = await billing_entitlement_service.provision_user_entitlements(
+        user=user,
+        product_identifier="direct_letters_pack_3",
+        session=db_session,
+    )
+    assert user.direct_letters_count == 24  # 21 + 3
+
+    # 6. passport_24h: passport_expires_at extended by 24 hours
+    r6 = await billing_entitlement_service.provision_user_entitlements(
+        user=user,
+        product_identifier="passport_24h",
+        session=db_session,
+    )
+    assert user.passport_expires_at is not None
+
+    # 7. Web Store Bonus: +20% extra perks
+    before_swipes = user.swipes_remaining
+    await billing_entitlement_service.provision_user_entitlements(
+        user=user,
+        product_identifier="pass_weekly",
+        session=db_session,
+        is_web_store=True,
+    )
+    # 100 * 1.2 = 120 swipes added
+    assert user.swipes_remaining == before_swipes + 120
+
+    # 8. Invalid SKU raises SanctuaryException
     with pytest.raises(SanctuaryException) as exc_info:
         await billing_entitlement_service.provision_user_entitlements(
             user=user,

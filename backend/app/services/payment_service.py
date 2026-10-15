@@ -21,6 +21,17 @@ from .billing_entitlement_service import billing_entitlement_service
 
 MAX_ORDER_CACHE_SIZE = 1000
 
+LEGACY_CATALOG: Dict[str, Dict[str, Any]] = {
+    "direct_letter_single": {"id": "direct_letter_single", "inr_price": 29.00},
+    "profile_unlock_single": {"id": "profile_unlock_single", "inr_price": 39.00},
+    "super_like_pack_3": {"id": "super_like_pack_3", "inr_price": 49.00},
+    "spotlight_boost_24h": {"id": "spotlight_boost_24h", "inr_price": 79.00},
+    "sacred_bridge_instant": {"id": "sacred_bridge_instant", "inr_price": 99.00},
+    "pass_sovereign_weekly": {"id": "pass_sovereign_weekly", "inr_price": 299.00},
+    "pass_sovereign_monthly": {"id": "pass_sovereign_monthly", "inr_price": 999.00},
+    "pass_sovereign_quarter": {"id": "pass_sovereign_quarter", "inr_price": 2499.00},
+}
+
 
 class PaymentService:
     """Razorpay Order Lifecycle, HMAC-SHA256 Cryptographic Verification & Replay Defense Service."""
@@ -45,6 +56,9 @@ class PaymentService:
             active_catalog = billing_entitlement_service.get_active_catalog()
             self.catalog_map = {item["id"]: item for item in active_catalog}
             product = self.catalog_map.get(product_identifier)
+
+        if not product:
+            product = LEGACY_CATALOG.get(product_identifier)
 
         if not product:
             raise SanctuaryException(
@@ -184,7 +198,7 @@ class PaymentService:
 
         # 3. Determine amount if missing
         if amount_gross is None or amount_gross <= Decimal("0.00"):
-            product = self.catalog_map.get(product_identifier)
+            product = self.catalog_map.get(product_identifier) or LEGACY_CATALOG.get(product_identifier)
             if product:
                 amount_gross = Decimal(str(product["inr_price"]))
             else:

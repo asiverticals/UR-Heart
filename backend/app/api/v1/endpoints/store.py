@@ -10,10 +10,12 @@ from ...deps import get_current_user
 router = APIRouter()
 
 @router.get("/catalog", response_model=SanctuaryResponse[StoreCatalogResponse])
-async def get_store_catalog() -> SanctuaryResponse[StoreCatalogResponse]:
+async def get_store_catalog(
+    is_web_store: bool = False,
+) -> SanctuaryResponse[StoreCatalogResponse]:
     """Retrieves the active sovereign product catalog strictly gated by Condition C2."""
     usd_enabled = getattr(settings, "ENABLE_GLOBAL_USD_BILLING", False)
-    raw_products = billing_entitlement_service.get_active_catalog()
+    raw_products = billing_entitlement_service.get_active_catalog(is_web_store=is_web_store)
     products = [StoreProductItem(**p) for p in raw_products]
 
     return SanctuaryResponse(

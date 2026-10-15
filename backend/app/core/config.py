@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     CASHFREE_CLIENT_ID: str = ""
     CASHFREE_SECRET_KEY: str = ""
 
+    # 5-Network Ad SSV Waterfall Credentials
+    ADMOB_VERIFIER_KEYS_URL: str = "https://www.gstatic.com/admob/reward/verifier-keys.json"
+    META_APP_SECRET: str = ""
+    UNITY_ADS_SECRET: str = ""
+    LIFTOFF_API_SECRET: str = ""
+    CHARTBOOST_APP_SECRET: str = ""
+
     # Cloudflare R2 Media Storage
     CLOUDFLARE_ACCOUNT_ID: str = ""
     R2_ACCESS_KEY_ID: str = ""
