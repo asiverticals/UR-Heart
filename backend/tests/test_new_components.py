@@ -364,9 +364,13 @@ async def test_legal_statutory_and_emergency_sla(db_session, make_user):
             data = g_resp.json()["data"]
             from datetime import datetime
             ack = datetime.fromisoformat(data["acknowledgment_sent_at"])
-            due = datetime.fromisoformat(data["statutory_resolution_due_at"])
-            diff_hours = (due - ack).total_seconds() / 3600
-            assert abs(diff_hours - 24) < 1.0
+            due_takedown = datetime.fromisoformat(data["emergency_takedown_due_at"])
+            diff_hours = (due_takedown - ack).total_seconds() / 3600
+            assert 0 < diff_hours <= 24.0
+
+            due_resolution = datetime.fromisoformat(data["statutory_resolution_due_at"])
+            diff_days = (due_resolution - ack).total_seconds() / 86400
+            assert 14.0 < diff_days <= 15.0
 
             # 2. Statutory disclosures
             terms_resp = await client.get("/api/v1/legal/terms")
@@ -394,6 +398,16 @@ async def test_legal_statutory_and_emergency_sla(db_session, make_user):
             )
             assert consent_resp.status_code == 200
             assert consent_resp.json()["data"]["recorded"] is True
+
+            # 4. Reject empty or whitespace consent_purpose_id (Issue #2)
+            empty_resp = await client.post(
+                "/api/v1/legal/consent-record",
+                json={
+                    "consent_purpose_id": "   ",
+                    "installation_uuid": "hw_install_test_123",
+                },
+            )
+            assert empty_resp.status_code == 422
     finally:
         app.dependency_overrides.pop(get_current_user, None)
         app.dependency_overrides.pop(get_db, None)

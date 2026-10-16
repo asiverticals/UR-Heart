@@ -124,12 +124,16 @@ class LegalVaultService:
 
         dossier_ref = self.generate_dossier_reference()
         ack_time = datetime.now(timezone.utc)
+        # IT Rules 2021 Rule 3(2)(a) 15-day general resolution SLA
+        resolution_due_at = ack_time + timedelta(days=15)
+
+        # IT Rules 2021 Rule 3(2)(b) mandatory 24-hour statutory emergency takedown SLA
+        emergency_takedown_due_at = None
         if payload.violation_category in ("explicit_content", "impersonation", "underage", "ncii"):
-            # IT Rules 2021 Rule 3(2)(b) mandatory 24-hour statutory emergency takedown SLA
-            due_date = ack_time + timedelta(hours=24)
+            emergency_takedown_due_at = ack_time + timedelta(hours=24)
+            sla_deadline_at = emergency_takedown_due_at
         else:
-            # IT Rules 2021 Rule 3(2)(a) 15-day general resolution SLA
-            due_date = ack_time + timedelta(days=15)
+            sla_deadline_at = resolution_due_at
 
         evidence = payload.evidence_text.strip()
         dossier = GrievanceDossier(
@@ -141,18 +145,27 @@ class LegalVaultService:
             statutory_notes=evidence,
             status="acknowledged",
             acknowledgment_sent_at=ack_time,
-            statutory_resolution_due_at=due_date,
-            sla_deadline_at=due_date,
+            statutory_resolution_due_at=resolution_due_at,
+            sla_deadline_at=sla_deadline_at,
         )
         session.add(dossier)
         await session.commit()
         await session.refresh(dossier)
 
+        ack_sent = dossier.acknowledgment_sent_at
+        if ack_sent.tzinfo is None:
+            ack_sent = ack_sent.replace(tzinfo=timezone.utc)
+
+        res_due = dossier.statutory_resolution_due_at
+        if res_due and res_due.tzinfo is None:
+            res_due = res_due.replace(tzinfo=timezone.utc)
+
         return {
             "dossier_reference_id": dossier.dossier_reference_id,
             "status": dossier.status,
-            "acknowledgment_sent_at": dossier.acknowledgment_sent_at.isoformat(),
-            "statutory_resolution_due_at": dossier.statutory_resolution_due_at.isoformat(),
+            "acknowledgment_sent_at": ack_sent.isoformat(),
+            "statutory_resolution_due_at": res_due.isoformat() if res_due else resolution_due_at.isoformat(),
+            "emergency_takedown_due_at": emergency_takedown_due_at.isoformat() if emergency_takedown_due_at else None,
         }
 
     async def get_user_grievances(

@@ -323,4 +323,69 @@ async def test_google_sync_unverified_email_rejected_and_safe(override_db, make_
     assert existing_user.auth_id != attacker_auth_id
 
 
+@pytest.mark.asyncio
+async def test_google_sync_quarantined_device_rejected(override_db):
+    """Test 11: Google OAuth sync intercepts quarantined hardware fingerprint (Issue #3)."""
+    device_fp = "d" * 64
+    now = datetime.now(timezone.utc)
+    quarantine = UnderageQuarantineRegistry(
+        device_hash=device_fp,
+        attempted_dob=safe_years_ago(16),
+        quarantine_until=now + timedelta(days=180),
+        attempt_metadata={"attempted_age": 16},
+    )
+    override_db.add(quarantine)
+    await override_db.commit()
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/auth/google-sync",
+            json={
+                "id_token": "mocked.valid.rs256.id_token.payload." + "x" * 30,
+                "installation_uuid": device_fp,
+            },
+        )
+    assert resp.status_code == 403
+    assert resp.json()["error_code"] == "UNDERAGE_QUARANTINE_TRIGGERED"
+
+
+@pytest.mark.asyncio
+async def test_google_sync_with_age_intent_token_success(override_db):
+    """Test 12: Google OAuth sync validates cryptographic age intent token and extracts verified DOB (Issue #4)."""
+    from backend.app.services.auth_service import AuthService
+
+    device_fp = "e" * 64
+    adult_dob = safe_years_ago(22)
+    token = AuthService.generate_age_intent_token(adult_dob, device_fp)
+
+    mock_claims = {
+        "sub": "google_uid_verified_age_123",
+        "email": "verified.age@gmail.com",
+        "email_verified": True,
+        "name": "Verified Seeker",
+        "picture": None,
+    }
+
+    with patch("backend.app.services.auth_service.verify_google_id_token", new_callable=AsyncMock, return_value=mock_claims):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/auth/google-sync",
+                json={
+                    "id_token": "mocked.valid.rs256.id_token.payload." + "x" * 30,
+                    "installation_uuid": device_fp,
+                    "age_intent_token": token,
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "access_token" in data
+
+        # Verify created in DB with verified adult DOB
+        stmt = select(User).where(User.email == "verified.age@gmail.com")
+        res = await override_db.execute(stmt)
+        user = res.scalar_one_or_none()
+        assert user is not None
+        assert user.dob == adult_dob
+
+
 

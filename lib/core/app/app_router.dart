@@ -140,7 +140,9 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/vault',
-        builder: (context, state) => const VaultLegalScreen(),
+        builder: (context, state) => VaultLegalScreen(
+          initialReportedUserId: state.uri.queryParameters['reported_user_id'],
+        ),
       ),
       GoRoute(
         path: '/settings',

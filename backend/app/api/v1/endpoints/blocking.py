@@ -65,12 +65,15 @@ async def block_user(
         )
         session.add(block_record)
 
-    # 3. Sever any active match dialogue
+    # 3. Sever any active match dialogue (preserve historical closure reason of closed matches)
     await session.execute(
         update(Match)
         .where(
-            ((Match.user1_id == current_user.id) & (Match.user2_id == target_id))
-            | ((Match.user1_id == target_id) & (Match.user2_id == current_user.id))
+            (
+                ((Match.user1_id == current_user.id) & (Match.user2_id == target_id))
+                | ((Match.user1_id == target_id) & (Match.user2_id == current_user.id))
+            )
+            & (Match.is_active.is_(True))
         )
         .values(is_active=False, closure_status="blocked")
     )

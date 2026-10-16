@@ -352,6 +352,31 @@ class ChatDialogueController extends StateNotifier<ChatDialogueState> {
     }
   }
 
+  /// Blocks the dialogue peer and severs active chat connection (Issue #7).
+  Future<bool> blockPeer(String peerId, {String? reason}) async {
+    try {
+      final res = await _httpClient.post(
+        '/api/v1/users/$peerId/block',
+        body: reason != null ? {'reason': reason} : null,
+      );
+
+      final success = res['data']?['blocked'] == true || res['blocked'] == true;
+      if (success && mounted) {
+        state = state.copyWith(
+          isDialogueClosed: true,
+          closureTemplateKey: 'blocked',
+          isPeerTyping: false,
+        );
+      }
+      return success;
+    } catch (e) {
+      if (mounted) {
+        state = state.copyWith(errorMessage: e.toString());
+      }
+      return false;
+    }
+  }
+
   @override
   void dispose() {
     _eventSubscription?.cancel();

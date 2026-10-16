@@ -78,7 +78,7 @@ class _ChatDialogueScreenState extends ConsumerState<ChatDialogueScreen> {
   }
 
   void _openReportGrievanceDialog() {
-    context.push('/vault');
+    context.push('/vault?reported_user_id=${widget.peerId}');
   }
 
   void _openBlockSeekerDialog() {
@@ -99,8 +99,8 @@ class _ChatDialogueScreenState extends ConsumerState<ChatDialogueScreen> {
             onPressed: () async {
               Navigator.of(ctx).pop();
               final controller = ref.read(chatDialogueControllerProvider(widget.matchId).notifier);
-              await controller.closeWithGrace('safety_concern', 'Blocked by seeker');
-              if (mounted) {
+              final blocked = await controller.blockPeer(widget.peerId, reason: 'safety_concern');
+              if (blocked && mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Seeker has been blocked.')),
                 );

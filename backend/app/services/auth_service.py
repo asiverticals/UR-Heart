@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import logging
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -57,6 +59,31 @@ class AuthService:
         return record
 
     @staticmethod
+    def generate_age_intent_token(dob: date, device_fingerprint: str) -> str:
+        """Generates HMAC-SHA256 signed age intent token to prove age verification was performed."""
+        token_payload = f"{device_fingerprint}:{dob.isoformat()}"
+        sig = hmac.new(settings.SECRET_KEY.encode(), token_payload.encode(), hashlib.sha256).hexdigest()
+        return f"{token_payload}:{sig}"
+
+    @staticmethod
+    def verify_age_intent_token(token: str, device_fingerprint: Optional[str] = None) -> Optional[date]:
+        """Validates cryptographic age intent token and extracts verified date of birth."""
+        try:
+            parts = token.strip().split(":")
+            if len(parts) != 3:
+                return None
+            fp, dob_str, sig = parts
+            if device_fingerprint and fp != device_fingerprint:
+                return None
+            expected_payload = f"{fp}:{dob_str}"
+            expected_sig = hmac.new(settings.SECRET_KEY.encode(), expected_payload.encode(), hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(sig, expected_sig):
+                return None
+            return date.fromisoformat(dob_str)
+        except Exception:
+            return None
+
+    @staticmethod
     async def verify_registration_eligibility(
         dob: date,
         device_fingerprint: str,
@@ -97,7 +124,8 @@ class AuthService:
                 details={"age": age},
             )
 
-        return {"eligible": True, "message": "Age criteria satisfied."}
+        intent_token = AuthService.generate_age_intent_token(dob, device_fingerprint)
+        return {"eligible": True, "message": "Age criteria satisfied.", "age_intent_token": intent_token}
 
     @staticmethod
     async def authenticate_google_user(
@@ -105,8 +133,32 @@ class AuthService:
         installation_uuid: Optional[str],
         session: AsyncSession,
         dob: Optional[date] = None,
+        age_intent_token: Optional[str] = None,
     ) -> TokenResponse:
         """Exchanges verified Google RS256 token claims for an authenticated Sanctuary session."""
+        now = datetime.now(timezone.utc)
+
+        # Check active device quarantine before processing authentication / registration (Issue #3)
+        if installation_uuid:
+            stmt_quarantine = (
+                select(UnderageQuarantineRegistry)
+                .where(
+                    UnderageQuarantineRegistry.device_hash == installation_uuid,
+                    UnderageQuarantineRegistry.quarantine_until > now,
+                )
+                .order_by(UnderageQuarantineRegistry.quarantine_until.desc())
+                .limit(1)
+            )
+            res_quarantine = await session.execute(stmt_quarantine)
+            quarantined = res_quarantine.scalars().first()
+            if quarantined:
+                raise SanctuaryException(
+                    error_code="UNDERAGE_QUARANTINE_TRIGGERED",
+                    message="Device is currently quarantined due to underage registration attempt.",
+                    status_code=403,
+                    details={"quarantine_until": quarantined.quarantine_until.isoformat()},
+                )
+
         claims = await verify_google_id_token(id_token)
         auth_id = resolve_auth_uuid(claims["sub"])
         email = claims.get("email")
@@ -135,8 +187,19 @@ class AuthService:
                 await session.commit()
 
         if not user:
-            # Mandate verified adult DOB under DPDP Act § 9 & POCSO Act
-            target_dob = dob
+            # Mandate verified adult DOB under DPDP Act § 9 & POCSO Act (Issue #4)
+            target_dob = None
+            if age_intent_token:
+                target_dob = AuthService.verify_age_intent_token(age_intent_token, installation_uuid)
+                if not target_dob:
+                    raise SanctuaryException(
+                        error_code="INVALID_AGE_TOKEN",
+                        message="Cryptographic age verification token is invalid or does not match device.",
+                        status_code=403,
+                    )
+            elif dob:
+                target_dob = dob
+
             if not target_dob:
                 if settings.ENVIRONMENT == "production" and not getattr(settings, "TESTING", False):
                     raise SanctuaryException(

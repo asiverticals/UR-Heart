@@ -8,13 +8,29 @@ import '../../../../core/theme/widgets/sanctuary_glass_container.dart';
 import '../controllers/vault_controller.dart';
 
 class VaultLegalScreen extends ConsumerStatefulWidget {
-  const VaultLegalScreen({super.key});
+  final String? initialReportedUserId;
+
+  const VaultLegalScreen({
+    super.key,
+    this.initialReportedUserId,
+  });
 
   @override
   ConsumerState<VaultLegalScreen> createState() => _VaultLegalScreenState();
 }
 
 class _VaultLegalScreenState extends ConsumerState<VaultLegalScreen> {
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialReportedUserId != null && widget.initialReportedUserId!.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _showGrievanceModal(context, initialReportedUserId: widget.initialReportedUserId);
+        }
+      });
+    }
+  }
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -679,8 +695,8 @@ class _VaultLegalScreenState extends ConsumerState<VaultLegalScreen> {
     );
   }
 
-  void _showGrievanceModal(BuildContext context) {
-    final userCtrl = TextEditingController();
+  void _showGrievanceModal(BuildContext context, {String? initialReportedUserId}) {
+    final userCtrl = TextEditingController(text: initialReportedUserId ?? '');
     final evidenceCtrl = TextEditingController();
     String category = 'harassment';
 

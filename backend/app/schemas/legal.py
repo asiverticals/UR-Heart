@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 ViolationCategory = Literal[
     "harassment",
@@ -19,13 +19,14 @@ class GrievanceSubmitRequest(BaseModel):
     evidence_text: str = Field(default="", max_length=500, description="Contextual report evidence narrative")
 
 class GrievanceResponse(BaseModel):
-    """Statutory acknowledgment ticket with IT Rules strict 15-day SLA timeline."""
+    """Statutory acknowledgment ticket with IT Rules strict SLA timeline."""
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
     dossier_reference_id: str = Field(..., description="Unique grievance tracking token")
     status: str = Field(..., description="Investigation status: submitted, triaged, resolved")
     acknowledgment_sent_at: str = Field(..., description="24-hour statutory acknowledgment timestamp")
     statutory_resolution_due_at: str = Field(..., description="15-day statutory resolution deadline")
+    emergency_takedown_due_at: Optional[str] = Field(None, description="24-hour emergency removal SLA for explicit/NCII content")
 
 class DataNomineeRequest(BaseModel):
     """Digital nominee designation under DPDP Act 2023 Section 14."""
@@ -86,7 +87,15 @@ class ConsentRecordRequest(BaseModel):
     """Statutory consent record submission under DPDP Act 2023 Section 6."""
     model_config = ConfigDict(extra="forbid")
 
-    consent_purpose_id: str = Field(..., max_length=64, description="Statutory purpose limitation identifier")
+    consent_purpose_id: str = Field(..., min_length=1, max_length=64, description="Statutory purpose limitation identifier")
     installation_uuid: Optional[str] = Field(None, max_length=64, description="Client hardware/installation identifier")
+
+    @field_validator("consent_purpose_id")
+    @classmethod
+    def validate_purpose_id(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("consent_purpose_id must not be empty or whitespace")
+        return stripped
 
 
