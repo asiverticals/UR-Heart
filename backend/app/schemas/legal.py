@@ -82,3 +82,11 @@ class MagicLinkVerifyRequest(BaseModel):
     token: str = Field(..., min_length=1, max_length=128, description="Cryptographic web deletion token")
     model_config = ConfigDict(extra="forbid")
 
+class ConsentRecordRequest(BaseModel):
+    """Statutory consent record submission under DPDP Act 2023 Section 6."""
+    model_config = ConfigDict(extra="forbid")
+
+    consent_purpose_id: str = Field(..., max_length=64, description="Statutory purpose limitation identifier")
+    installation_uuid: Optional[str] = Field(None, max_length=64, description="Client hardware/installation identifier")
+
+

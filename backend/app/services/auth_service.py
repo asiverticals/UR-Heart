@@ -104,6 +104,7 @@ class AuthService:
         id_token: str,
         installation_uuid: Optional[str],
         session: AsyncSession,
+        dob: Optional[date] = None,
     ) -> TokenResponse:
         """Exchanges verified Google RS256 token claims for an authenticated Sanctuary session."""
         claims = await verify_google_id_token(id_token)
@@ -134,12 +135,35 @@ class AuthService:
                 await session.commit()
 
         if not user:
+            # Mandate verified adult DOB under DPDP Act § 9 & POCSO Act
+            target_dob = dob
+            if not target_dob:
+                if settings.ENVIRONMENT == "production" and not getattr(settings, "TESTING", False):
+                    raise SanctuaryException(
+                        error_code="AGE_VERIFICATION_REQUIRED",
+                        message="Seeker must complete age gate verification with a verified adult date of birth.",
+                        status_code=403,
+                    )
+                target_dob = date(2000, 1, 1)
+
+            today = date.today()
+            age = today.year - target_dob.year - ((today.month, today.day) < (target_dob.month, target_dob.day))
+            if age < 18:
+                if installation_uuid:
+                    await AuthService.record_underage_quarantine(installation_uuid, target_dob, age, session)
+                raise SanctuaryException(
+                    error_code="UNDERAGE_ACCESS_PROHIBITED",
+                    message="Seekers must be at least 18 years of age.",
+                    status_code=403,
+                    details={"age": age},
+                )
+
             # Bootstrap initial uncompleted seeker account
             user = User(
                 auth_id=auth_id,
                 email=email,
                 full_name=claims.get("name") or "Seeker",
-                dob=date(2000, 1, 1),
+                dob=target_dob,
                 gender="Other",
                 interested_in="Everyone",
                 contact_bridge_type="whatsapp",

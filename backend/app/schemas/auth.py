@@ -17,6 +17,7 @@ class GoogleSyncRequest(BaseModel):
 
     id_token: str = Field(..., min_length=50, description="RS256 Google JWT token")
     installation_uuid: Optional[str] = Field(None, max_length=64, description="Client hardware UUID")
+    dob: Optional[date] = Field(None, description="Verified adult date of birth (mandatory for new accounts under DPDP § 9)")
 
 class MagicLinkSendRequest(BaseModel):
     """Passwordless magic link dispatch request."""

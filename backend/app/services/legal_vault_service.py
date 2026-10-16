@@ -124,7 +124,12 @@ class LegalVaultService:
 
         dossier_ref = self.generate_dossier_reference()
         ack_time = datetime.now(timezone.utc)
-        due_date = ack_time + timedelta(days=15)
+        if payload.violation_category in ("explicit_content", "impersonation", "underage", "ncii"):
+            # IT Rules 2021 Rule 3(2)(b) mandatory 24-hour statutory emergency takedown SLA
+            due_date = ack_time + timedelta(hours=24)
+        else:
+            # IT Rules 2021 Rule 3(2)(a) 15-day general resolution SLA
+            due_date = ack_time + timedelta(days=15)
 
         evidence = payload.evidence_text.strip()
         dossier = GrievanceDossier(

@@ -293,3 +293,110 @@ async def test_payment_service_rejects_negative_amount():
     assert exc_info.value.error_code == "INVALID_PAYMENT_AMOUNT"
 
 
+@pytest.mark.asyncio
+async def test_user_blocking_endpoints(db_session, make_user):
+    """Verify POST /api/v1/users/{id}/block, GET /api/v1/users/blocked, and DELETE /api/v1/users/{id}/block."""
+    from backend.app.api.deps import get_current_user, get_db
+
+    user1 = make_user(full_name="Blocker User", is_profile_completed=True)
+    user2 = make_user(full_name="Target User", is_profile_completed=True)
+    db_session.add_all([user1, user2])
+    await db_session.commit()
+
+    app.dependency_overrides[get_current_user] = lambda: user1
+    app.dependency_overrides[get_db] = lambda: db_session
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # 1. Block user2
+            block_resp = await client.post(
+                f"/api/v1/users/{user2.id}/block",
+                json={"reason": "abusive_behavior"},
+            )
+            assert block_resp.status_code == 200
+            assert block_resp.json()["data"]["blocked"] is True
+
+            # 2. Cannot block self
+            self_resp = await client.post(f"/api/v1/users/{user1.id}/block")
+            assert self_resp.status_code == 400
+
+            # 3. List blocked users
+            list_resp = await client.get("/api/v1/users/blocked")
+            assert list_resp.status_code == 200
+            assert str(user2.id) in list_resp.json()["data"]
+
+            # 4. Unblock user2
+            unblock_resp = await client.delete(f"/api/v1/users/{user2.id}/block")
+            assert unblock_resp.status_code == 200
+            assert unblock_resp.json()["data"]["unblocked"] is True
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_legal_statutory_and_emergency_sla(db_session, make_user):
+    """Verify 24-hr emergency SLA for NCII/explicit content and statutory disclosure endpoints."""
+    from backend.app.api.deps import get_current_user, get_db
+
+    user1 = make_user(full_name="Reporting Seeker", is_profile_completed=True)
+    user2 = make_user(full_name="Target Seeker", is_profile_completed=True)
+    db_session.add_all([user1, user2])
+    await db_session.commit()
+
+    app.dependency_overrides[get_current_user] = lambda: user1
+    app.dependency_overrides[get_db] = lambda: db_session
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # 1. 24-hr emergency takedown for explicit_content
+            g_resp = await client.post(
+                "/api/v1/legal/grievance",
+                json={
+                    "reported_user_id": str(user2.id),
+                    "violation_category": "explicit_content",
+                    "evidence_text": "NCII emergency takedown request",
+                },
+            )
+            assert g_resp.status_code == 200
+            data = g_resp.json()["data"]
+            from datetime import datetime
+            ack = datetime.fromisoformat(data["acknowledgment_sent_at"])
+            due = datetime.fromisoformat(data["statutory_resolution_due_at"])
+            diff_hours = (due - ack).total_seconds() / 3600
+            assert abs(diff_hours - 24) < 1.0
+
+            # 2. Statutory disclosures
+            terms_resp = await client.get("/api/v1/legal/terms")
+            assert terms_resp.status_code == 200
+            assert terms_resp.json()["data"]["entity"] == "ASI Verticals Private Limited"
+
+            privacy_resp = await client.get("/api/v1/legal/privacy")
+            assert privacy_resp.status_code == 200
+            assert len(privacy_resp.json()["data"]["languages_supported"]) >= 10
+
+            griev_officer_resp = await client.get("/api/v1/legal/grievance-officer")
+            assert griev_officer_resp.status_code == 200
+            assert griev_officer_resp.json()["data"]["emergency_takedown_sla_hours"] == 24
+
+            refund_resp = await client.get("/api/v1/legal/refund-policy")
+            assert refund_resp.status_code == 200
+
+            # 3. Consent record audit log
+            consent_resp = await client.post(
+                "/api/v1/legal/consent-record",
+                json={
+                    "consent_purpose_id": "purpose_dpdp_onboarding_v1",
+                    "installation_uuid": "hw_install_test_123",
+                },
+            )
+            assert consent_resp.status_code == 200
+            assert consent_resp.json()["data"]["recorded"] is True
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+

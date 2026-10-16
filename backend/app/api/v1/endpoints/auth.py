@@ -69,6 +69,7 @@ async def google_sync(
         id_token=payload.id_token,
         installation_uuid=payload.installation_uuid,
         session=db,
+        dob=payload.dob,
     )
 
 @router.post(

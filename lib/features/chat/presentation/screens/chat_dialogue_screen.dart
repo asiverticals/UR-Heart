@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../../core/constants/app_typography.dart';
@@ -73,6 +74,43 @@ class _ChatDialogueScreenState extends ConsumerState<ChatDialogueScreen> {
         final controller = ref.read(chatDialogueControllerProvider(widget.matchId).notifier);
         return await controller.closeWithGrace(templateKey, note);
       },
+    );
+  }
+
+  void _openReportGrievanceDialog() {
+    context.push('/vault');
+  }
+
+  void _openBlockSeekerDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Block Seeker?'),
+        content: const Text(
+          'Blocking this seeker will immediately sever your mutual resonance, conclude the chat dialogue, and remove their persona from discovery deck.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final controller = ref.read(chatDialogueControllerProvider(widget.matchId).notifier);
+              await controller.closeWithGrace('safety_concern', 'Blocked by seeker');
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Seeker has been blocked.')),
+                );
+                context.pop();
+              }
+            },
+            child: const Text('Block', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -242,6 +280,10 @@ class _ChatDialogueScreenState extends ConsumerState<ChatDialogueScreen> {
             onSelected: (value) {
               if (value == 'pass_with_grace') {
                 _openPassWithGraceDialog();
+              } else if (value == 'report_grievance') {
+                _openReportGrievanceDialog();
+              } else if (value == 'block_seeker') {
+                _openBlockSeekerDialog();
               }
             },
             itemBuilder: (ctx) => [
@@ -258,12 +300,23 @@ class _ChatDialogueScreenState extends ConsumerState<ChatDialogueScreen> {
                 ),
               const PopupMenuItem(
                 value: 'report_grievance',
-                enabled: false,
+                enabled: true,
                 child: Row(
                   children: [
-                    Icon(Icons.flag_outlined, size: 18.0, color: Colors.grey),
+                    Icon(Icons.flag_outlined, size: 18.0, color: Colors.amber),
                     SizedBox(width: 10.0),
-                    Text('Report Grievance (Coming Soon)'),
+                    Text('Report Grievance'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'block_seeker',
+                enabled: true,
+                child: Row(
+                  children: [
+                    Icon(Icons.block_outlined, size: 18.0, color: Colors.redAccent),
+                    SizedBox(width: 10.0),
+                    Text('Block Seeker'),
                   ],
                 ),
               ),

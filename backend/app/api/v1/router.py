@@ -5,6 +5,7 @@ from .endpoints import (
     ai,
     auth,
     blind_date,
+    blocking,
     chat_closure,
     chat_ws,
     eva,
@@ -86,7 +87,5 @@ api_router.include_router(resonances.router, prefix="/resonances", tags=["Resona
 # 19. Blind Date Speed Dating (Condition C1 Gated)
 api_router.include_router(blind_date.router, prefix="/blind-date", tags=["BlindDate"])
 
-
-
-
-
+# 20. User Blocking & Safety Interventions (Apple Guideline 1.2 & Google Play UGC)
+api_router.include_router(blocking.router, prefix="/users", tags=["Blocking"])
