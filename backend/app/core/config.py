@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     WS_TICKET_EXPIRE_SECONDS: int = 60
     WS_BASE_URL: str = "wss://urheart.app/ws/chat"
     CONTACT_BRIDGE_SECRET_KEY: Optional[str] = None
-
+    TRUSTED_PROXIES: str = "127.0.0.1,::1"
     # Scale Condition Feature Gates (Condition C1 & C2)
     BLIND_DATE_MIN_ACTIVE_USERS: int = 1000000
     ENABLE_BLIND_DATE_OVERRIDE: bool = False
@@ -176,3 +176,5 @@ def validate_production_secrets() -> None:
             raise RuntimeError("Fatal: SUPABASE_SERVICE_ROLE_KEY is required in production.")
         if not settings.SUPERADMIN_SECRET_KEY or settings.SUPERADMIN_SECRET_KEY.startswith("placeholder_"):
             raise RuntimeError("Fatal: SUPERADMIN_SECRET_KEY is required and must not be a placeholder in production.")
+        if not settings.CONTACT_BRIDGE_SECRET_KEY:
+            raise RuntimeError("Fatal: CONTACT_BRIDGE_SECRET_KEY is required in production.")

@@ -144,6 +144,37 @@ class PaymentService:
             return self.order_cache[order_id]
         return None
 
+    async def fetch_order_from_razorpay(self, order_id: str) -> Optional[Dict[str, Any]]:
+        """Authoritatively fetches order details from Razorpay API on cache miss (Issue #6)."""
+        key_id = settings.RAZORPAY_KEY_ID
+        key_secret = settings.RAZORPAY_KEY_SECRET
+        if not key_id or not key_secret or key_id.startswith("mock_") or key_id == "rzp_test_urheart":
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    f"https://api.razorpay.com/v1/orders/{order_id}",
+                    auth=(key_id, key_secret),
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    notes = data.get("notes", {})
+                    product_id = notes.get("product_id") or notes.get("product_identifier")
+                    user_id = notes.get("user_id")
+                    amount_paise = data.get("amount", 0)
+                    amount_inr = float(amount_paise) / 100.0
+                    order_info = {
+                        "user_id": user_id,
+                        "product_id": product_id,
+                        "amount_inr": amount_inr,
+                        "amount_paise": amount_paise,
+                    }
+                    self.order_cache[order_id] = order_info
+                    return order_info
+        except Exception:
+            pass
+        return None
+
     def verify_client_signature(self, order_id: str, payment_id: str, signature: str) -> bool:
         """Constant-time HMAC-SHA256 validation of client payment token."""
         if not settings.RAZORPAY_KEY_SECRET or not signature:

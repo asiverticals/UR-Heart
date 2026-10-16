@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ....core.config import settings
 from ....core.database import get_db
 from ....core.exceptions import SanctuaryException
 from ....models.domain.user import User
@@ -67,8 +68,11 @@ async def verify_checkout(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    # 2. Resolve product identifier with server-side precedence and ownership verification (SEC-05, SEC-06)
+    # 2. Resolve product identifier with server-side precedence and ownership verification (SEC-05, SEC-06, Issue #6)
     cached_order = payment_service.get_cached_order(payload.razorpay_order_id)
+    if not cached_order:
+        cached_order = await payment_service.fetch_order_from_razorpay(payload.razorpay_order_id)
+
     if cached_order:
         cached_user_id = str(cached_order.get("user_id"))
         if cached_user_id and cached_user_id != str(current_user.id):
@@ -77,15 +81,23 @@ async def verify_checkout(
                 message="You do not own this order intent.",
                 status_code=status.HTTP_403_FORBIDDEN,
             )
-        if payload.product_identifier and cached_order.get("product_id") and payload.product_identifier != cached_order.get("product_id"):
+        authoritative_sku = cached_order.get("product_id")
+        if payload.product_identifier and authoritative_sku and payload.product_identifier != authoritative_sku:
             raise SanctuaryException(
                 error_code="SKU_TAMPERING_DETECTED",
                 message="Submitted product identifier does not match authorized order contract.",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
-        product_identifier = cached_order.get("product_id") or payload.product_identifier
+        product_identifier = authoritative_sku or payload.product_identifier
     else:
-        product_identifier = payload.product_identifier
+        if settings.TESTING or settings.ENVIRONMENT in ("development", "test"):
+            product_identifier = payload.product_identifier
+        else:
+            raise SanctuaryException(
+                error_code="ORDER_RECORD_NOT_FOUND",
+                message="Authoritative order contract not found. Payment cannot be verified.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
 
     if not product_identifier:
         raise SanctuaryException(

@@ -68,13 +68,15 @@ class ResonancesController extends StateNotifier<ResonancesState> {
         'target_id': targetId,
         'swipe_type': swipeType,
       });
-      await fetchResonances();
-      return true;
     } catch (_) {
       return false;
     } finally {
       _pendingTargets.remove(targetId);
     }
+    try {
+      await fetchResonances();
+    } catch (_) {}
+    return true;
   }
 }
 

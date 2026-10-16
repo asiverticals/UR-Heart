@@ -146,8 +146,19 @@ async def redirect_voice_spark(
                 detail="Unauthorized: You do not have permission to access this voice spark.",
             )
 
+    # Restrict presigning strictly to legitimate spark.m4a object key (Issue #5)
+    if filename != "spark.m4a":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid voice spark asset requested.",
+        )
+
     try:
-        url = storage.generate_presigned_get_url(f"users/{user_id}/voice/{filename}", expires_in=300)
+        url = await asyncio.to_thread(
+            storage.generate_presigned_get_url,
+            f"users/{user_id}/voice/spark.m4a",
+            expires_in=300,
+        )
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

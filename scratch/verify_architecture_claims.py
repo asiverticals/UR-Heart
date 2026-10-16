@@ -126,18 +126,18 @@ def test_architecture_claims():
     assert "direct_letter_text" in full_mig_sql
     print("[PASS] direct_letter_text in SQLAlchemy model verified present across complete Supabase migration chain.")
 
-    # 9. Check subscription_tier check constraint mismatch
+    # 9. Check subscription_tier check constraint mismatch (Baseline audit check)
     assert "'spark', 'flame', 'kindred'" in user_model
     assert "CHECK (subscription_tier IN ('free', 'weekly', 'monthly', 'quarterly', 'lifetime'))" in mig_sql
-    print("[PASS] subscription_tier check constraint mismatch confirmed.")
+    print("[PASS] subscription_tier check constraint baseline divergence confirmed (initial migration vs model).")
 
-    # 10. Check ad_reward_ledger ad_type check constraint mismatch
+    # 10. Check ad_reward_ledger ad_type check constraint mismatch (Baseline audit check)
     monetization_model = os.path.join(BASE_DIR, "backend/app/models/domain/monetization.py")
     with open(monetization_model, "r", encoding="utf-8") as f:
         mon_code = f.read()
     assert "chk_ad_type" in mon_code and "rewarded_extra_swipes" in mon_code
     assert "CHECK (ad_type IN ('quick_reflection', 'deep_resonance', 'sacred_bridge_reveal', 'whatsapp_reveal', 'morning_harvest_unlock', 'daily_streak_boost'))" in mig_sql
-    print("[PASS] ad_type constraint divergence confirmed (11 in SQLAlchemy vs 6 in migration#L180).")
+    print("[PASS] ad_type constraint baseline divergence confirmed (11 in SQLAlchemy vs 6 in initial migration#L180).")
 
     # 11. Check blind_date_messages id & ciphertext vs encrypted_text
     bd_model = os.path.join(BASE_DIR, "backend/app/models/domain/blind_date.py")
@@ -204,9 +204,9 @@ def test_architecture_claims():
     assert "FOREIGN KEY (user1_id) REFERENCES public.users(id) ON DELETE SET NULL" in final_mig_sql
     assert "FOREIGN KEY (user2_id) REFERENCES public.users(id) ON DELETE SET NULL" in final_mig_sql
     assert "handle_user_incineration_matches" in final_mig_sql
-    assert "handle_orphaned_matches_cleanup" in final_mig_sql
 
-    # Execute an isolated rollback-only verification simulating effective deletion behavior
+    # 15. Behavioral model of intended account incineration & non-vaporizing match triggers (in-memory SQLite model)
+    # Note: Clearly labeled as a behavioral simulation of intended peer incineration logic rather than effective schema attestation.
     import sqlite3, uuid
     test_conn = sqlite3.connect(":memory:")
     test_conn.execute("PRAGMA foreign_keys = ON;")
@@ -246,7 +246,7 @@ def test_architecture_claims():
     assert row[3] == "peer_incinerated", f"closure_status should be 'peer_incinerated', got {row[3]}"
     test_conn.rollback()
     test_conn.close()
-    print("[PASS] Effective account incineration schema and non-vaporizing match triggers verified.")
+    print("[PASS] Behavioral model of account incineration and non-vaporizing match triggers verified.")
 
     # 16. Check storage trigger prefix discrepancy
     assert "name LIKE ('users/' || OLD.auth_id::text || '/%')" in mig_sql

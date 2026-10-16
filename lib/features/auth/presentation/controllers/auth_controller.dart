@@ -132,7 +132,7 @@ class AuthController extends StateNotifier<AuthState> {
             }
           } on SanctuaryClientException catch (e) {
             if (_sessionEpoch == currentEpoch &&
-                (e.statusCode == 401 || e.statusCode == 403)) {
+                (e.statusCode == 401 || e.statusCode == 403 || e.statusCode == 404)) {
               await _storage.clearSession();
             }
             return;

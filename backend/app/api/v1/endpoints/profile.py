@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
     from ....core.database import get_db
+    from ....core.exceptions import SanctuaryException
     from ....core.security import encrypt_contact_bridge
     from ....models.domain.user import User
     from ....schemas.base_response import SanctuaryResponse
@@ -12,6 +13,7 @@ try:
     from ...deps import get_current_user
 except (ImportError, ValueError):
     from backend.app.core.database import get_db
+    from backend.app.core.exceptions import SanctuaryException
     from backend.app.core.security import encrypt_contact_bridge
     from backend.app.models.domain.user import User
     from backend.app.schemas.base_response import SanctuaryResponse
@@ -34,6 +36,12 @@ async def create_profile(
     db: AsyncSession = Depends(get_db),
 ) -> SanctuaryResponse[Dict[str, Any]]:
     """Persists seeker onboarding details, encrypts contact bridge, and marks profile complete."""
+    if current_user.is_profile_completed:
+        raise SanctuaryException(
+            error_code="PROFILE_ALREADY_COMPLETED",
+            message="Seeker profile has already been onboarded.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
     current_user.full_name = payload.full_name
     current_user.dob = payload.dob
     current_user.gender = payload.gender

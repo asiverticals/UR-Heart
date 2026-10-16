@@ -40,13 +40,13 @@ The following matrix quantifies the direct civil financial penalties, criminal l
 | # | Statutory Provision / Policy | Codebase Finding & Line Reference | Legal Nature of Violation | Maximum Civil Financial Penalty | Maximum Criminal Liability (Directors / Operators) | Operational & Store Sanctions |
 |---|---|---|---|---|---|---|
 | **1** | **DPDP Act 2023 § 9(1)–(3)** (Children's Personal Data) read with **POCSO Act 2012 §§ 13–15** | `backend/app/services/auth_service.py#L142` (`dob=date(2000, 1, 1)`) | Processing children's personal data without verifiable parental consent; exposing minors to adult dating environments | Up to **₹200 Crores** (Schedule Item 3) | **Imprisonment up to 5–7 years** (Cognizable & Non-Bailable under POCSO / IT Act § 67B) | Immediate app store suspension; hardware-level device seizure |
-| **2** | **DPDP Act 2023 § 8(5)** (Reasonable Security Safeguards) | `supabase/migrations/20260926000000_phase1_database_foundation_and_rls.sql#L1127-1129` & `media.py#L55` | Failure of storage purge cascade leaving biometric KYC frames and user media unpurged | Up to **₹250 Crores** (Schedule Item 1) | Personal tort liability; statutory audit censure | Data Protection Board (DPB) operational injunction |
+| **2** | **DPDP Act 2023 § 8(5)** (Reasonable Security Safeguards) | `supabase/migrations/20260926000000_phase1_database_foundation_and_rls.sql#L1127-1129` & `backend/app/api/v1/endpoints/media.py#L55` | Failure of storage purge cascade leaving biometric KYC frames and user media unpurged | Up to **₹250 Crores** (Schedule Item 1) | Personal tort liability; statutory audit censure | Data Protection Board (DPB) operational injunction |
 | **3** | **DPDP Act 2023 §§ 5 & 6** (Notice & Affirmative Consent) | `lib/features/auth/presentation/screens/consent_screen.dart#L39-47, L208-248` | Plaintext SharedPreferences storage; unnotified GPS/biometrics; no 8th Schedule languages | Up to **₹50 Crores** (Schedule Item 6) | Prosecution under DPDP Section 15 for false declarations | Mandatory suspension of data processing activities |
 | **4** | **DPDP Act 2023 § 12** (Right to Erasure / Incineration) | `lib/core/app/app_router.dart#L146`, `account_incineration_service.py#L133`, `matches` FK | UI deletion route orphaned; Postgres CASCADE erases `peer_incinerated` state; GoTrue user retained | Up to **₹50 Crores** (Schedule Item 6) | Director civil contempt under DPB orders | App Store removal under Apple Guideline 5.1.1(v) |
 | **5** | **IT Act 2000 § 79** read with **IT Rules 2021 Rules 3(1)(a)-(b)** | Complete absence of Terms of Service & Privacy Policy in `lib/` and `backend/` | Total loss of intermediary safe harbor; direct publisher liability for third-party uploads | Unlimited tort liability; loss of statutory shield | Direct prosecution under **IT Act §§ 67, 67A** (3 to 7 yrs imprisonment) | Platform blocking under IT Act § 69A |
 | **6** | **IT Rules 2021 Rule 3(2)(a)** (Grievance Redressal) | Complete absence of Grievance Officer name, Indian address, email, and phone | Failure to establish statutory redressal mechanism within Indian territory | Contempt under IT Act § 45 (Fine up to ₹25,000 + loss of safe harbor) | Inability to defend defamation / obscenity prosecutions | Blacklisting by Ministry of Electronics & IT (MeitY) |
 | **7** | **IT Rules 2021 Rule 3(2)(b)** (Emergency NCII Takedown) | `backend/app/services/legal_vault_service.py#L127` (blanket 15-day SLA applied to NCII) | Failure to remove sexually explicit content / NCII within mandatory 24-hour window | Loss of safe harbor; direct vicarious liability | **Imprisonment up to 3 years** under IT Act § 66E; **up to 5 years** under IT Act § 67A | Escalation to National Cyber Crime Reporting Portal (NCRP) |
-| **8** | **BNS 2023 §§ 77 & 78** (Voyeurism & Stalking) read with **DPDP § 6** | `backend/app/services/photo_reveal_service.py#L244-257` & `revelation.py#L95-117` | Selling ₹39 unilateral photo unmasking bypassing target's consent and modesty veil | Up to **₹50 Crores** (DPDP); civil damages for privacy tort | **Imprisonment up to 3 to 7 years** (BNS § 77 / § 78) | Immediate removal for predatory monetized voyeurism |
+| **8** | **BNS 2023 §§ 77 & 78** (Voyeurism & Stalking) read with **DPDP § 6** | `backend/app/services/photo_reveal_service.py#L244-257` & `backend/app/api/v1/endpoints/revelation.py#L95-117` | Selling ₹39 unilateral photo unmasking bypassing target's consent and modesty veil | Up to **₹50 Crores** (DPDP); civil damages for privacy tort | **Imprisonment up to 3 to 7 years** (BNS § 77 / § 78) | Immediate removal for predatory monetized voyeurism |
 | **9** | **Consumer Protection (E-Commerce) Rules 2020** | `lib/features/growth/data/payment_service.dart#L51-141` & `backend/app/api/v1/endpoints/payments.py` | Missing merchant entity identity, CIN/GSTIN, pre-purchase refund terms, and chargeback APIs | Penalties up to **₹10 Lakhs** to **₹50 Lakhs** under CPA 2019 § 89 | Prosecution for unfair trade practices | Revocation of payment gateway merchant account (Razorpay) |
 | **10** | **Apple Guideline 3.1.1 & Google Play Payments Policy** | `lib/features/growth/data/payment_service.dart#L51-141, L148-154` (Direct Razorpay in APK/IPA) | Circumvention of platform in-app billing engines for digital dating perks and unlocks | N/A (Contractual & Store Enforcement) | N/A | **Immediate binary rejection and developer account termination** |
 
@@ -209,16 +209,11 @@ Section 12(3) of the DPDP Act provides:
 
 UR-Heart heavily markets its "Account Incineration" feature as a cryptographically irreversible, zero-retention privacy engine. Our forensic inspection evaluated the entire erasure chain from Flutter UI to FastAPI backend to Supabase database and Cloudflare R2 object storage.
 
-#### 2.3.1 The Orphaned UI Navigation Flaw
-While `AccountIncinerationDialog` exists in `lib/features/legal_vault/presentation/widgets/account_incineration_dialog.dart`, and `SanctuarySettingsScreen` exists in `lib/features/settings/presentation/screens/sanctuary_settings_screen.dart`, **neither screen is accessible through the application UI!**
-- In `lib/features/navigation/presentation/screens/sanctuary_navigation_shell.dart#L27-33`, the 5 persistent tabs are:
-  1. `FeedScreen` (Discovery Feed)
-  2. `ResonancesScreen` (Empty Stub: `Text('ResonancesScreen (Coming Soon)')`)
-  3. `ChatsListScreen` (Empty Stub: `Text('ChatsListScreen (Coming Soon)')`)
-  4. `GrowthHubScreen` (Rewards & Store)
-  5. `MyPersonaScreen` (Empty Stub: `Text('MyPersonaScreen')`)
-- In `lib/core/app/app_router.dart#L142-148`, `/settings` and `/vault` are registered, but **zero buttons, menu icons, or links navigate to them**.
-- An end-user cannot access their settings or legal vault to initiate account deletion during ordinary application use, violating Section 12 and Apple Guideline 5.1.1(v).
+#### 2.3.1 The Orphaned UI Navigation Flaw (Pre-Remediation Baseline)
+In the initial baseline audit, while `AccountIncinerationDialog` existed in `lib/features/legal_vault/presentation/widgets/account_incineration_dialog.dart`, and `SanctuarySettingsScreen` existed in `lib/features/settings/presentation/screens/sanctuary_settings_screen.dart`, direct UI navigation routes were absent:
+- In `lib/features/navigation/presentation/screens/sanctuary_navigation_shell.dart#L27-33`, persistent tabs originally rendered stubs.
+- In `lib/core/app/app_router.dart#L142-148`, `/settings` and `/vault` were registered without UI entry points.
+- *Remediation Update*: In the current release, `MyPersonaScreen` exposes a direct Settings action icon leading to `SanctuarySettingsScreen`, which directly links to the Legal Vault (`/vault`) and Account Incineration confirmation workflows, restoring end-user compliance with Section 12 and Apple Guideline 5.1.1(v).
 
 #### 2.3.2 Supabase GoTrue Auth Identity Retention
 In `backend/app/services/account_incineration_service.py#L52-156`, the service deletes the user row from `public.users` (`await session.execute(delete(User).where(User.id == user_id))`).
@@ -426,13 +421,11 @@ async def unlock_photo_with_perk(...)
 #### 4.1.2 Statutory & Criminal Analysis
 1. **Direct Breach of DPDP Act 2023 Section 6**:
    Under Section 6(1), processing of personal data (including biometric facial imagery) requires consent that is free, specific, informed, unconditional, and unambiguous with clear affirmative action. By permitting User A to pay ₹39 to unmask User B's photographs without User B's prior knowledge, affirmative consent, or notification, the platform unilaterally overrides User B's statutory consent rights.
-2. **Criminal Liability for Voyeurism (BNS 2023 § 77)**:
-   Under Section 77 of the Bharatiya Nyaya Sanhita, 2023:
-   > *"Any man who monitors or watches or captures the image of a woman engaging in a private act in circumstances where she would usually have the expectation of not being observed... commits the offence of voyeurism."*
-   In a privacy-first dating platform where seekers upload veiled photos under the explicit contractual promise of modesty and mutual consent, selling a paid backdoor to unmask their facial likeness without consent constitutes commercial facilitation and abetment of voyeurism.
-3. **Criminal Liability for Cyber Stalking (BNS 2023 § 78)**:
-   Facilitating the persistent, unilateral tracking and visual unmasking of a non-consenting individual constitutes electronic stalking under BNS Section 78.
-4. **Remediation**: The `profile_unlock_single` bypass must be **completely eliminated**. Photo unmasking must strictly require **bilateral affirmative mutual consent** in all circumstances.
+2. **Statutory Risk & Privacy Exposure Assessment (BNS 2023 § 77 & Civil Liability)**:
+   While Section 77 of the Bharatiya Nyaya Sanhita, 2023 penalizes watching or capturing images of a woman engaging in a private act (an element not established solely by access to a veiled facial profile portrait), offering a unilateral paid unmasking mechanism violates the statutory consent requirements of DPDP Act 2023 Section 6 and breaches contractual privacy expectations. Legal counsel should independently evaluate any potential criminal or civil liabilities arising from non-consensual photo revelation.
+3. **Potential Cyber Stalking Considerations (BNS 2023 § 78)**:
+   Persistently enabling unilateral unmasking and tracking of non-consenting users warrants legal review under BNS Section 78 and intermediary guidelines.
+4. **Remediation**: The unverified `profile_unlock_single` bypass must be gated or eliminated. Photo revelation must enforce strict bilateral affirmative mutual consent.
 
 ---
 
@@ -721,10 +714,10 @@ Your personal data is hosted primarily on cloud servers located within the terri
 We retain personal data strictly for as long as necessary to fulfill the purposes of processing, or to comply with statutory legal requirements:
 
 1. **Active Seeker Profiles**: Retained for the active lifespan of the account.
-2. **Ephemeral Biometric Frames (KYC Liveness)**: Video frames captured during camera liveness checks are permanently deleted within **60 seconds** of automated machine verification. Only the binary verification status (`kyc_verified = True/False`) and timestamp are retained.
+2. **Ephemeral Biometric Frames (KYC Liveness)**: Video frames captured during camera liveness checks are processed in-memory during verification and deleted in accordance with verified processing capabilities; only the binary verification status (`kyc_verified = True/False`) and verification timestamp are persisted.
 3. **Account Incineration (Section 12 Erasure)**:
-   - When a seeker triggers account incineration, all profile data, photos, voice sparks, match records, FCM tokens, and private messages are **permanently and irrevocably expunged within 24 hours**.
-   - Cloudflare R2 media files are deleted via prefix cascade (`users/{user_id}/`).
+   - When a seeker triggers account incineration, database records and associated credentials are scheduled for transactional erasure through database triggers and service cleanup routines in accordance with tested operational workflows.
+   - Cloudflare R2 media files are targeted for deletion via prefix purge (`users/{user_id}/`).
 4. **Statutory Legal Retention Exceptions**:
    - Financial transaction ledgers (Order ID, Payment ID, Gross Amount) are retained in anonymized form for **7 years** pursuant to Section 44AB of the Income Tax Act, 1961.
    - Statutory grievance dossiers are retained in anonymized form for **1 year** pursuant to Rule 3(2) of the Information Technology Rules, 2021 for MeitY reporting.

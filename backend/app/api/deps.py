@@ -53,8 +53,8 @@ async def get_current_user(
         )
 
     # Server-side token revocation validation (SEC-02)
-    token_version = payload.get("token_version")
-    if token_version is not None and token_version < getattr(user, "token_version", 1):
+    token_version = payload.get("token_version", 0)
+    if not isinstance(token_version, int) or token_version < getattr(user, "token_version", 1):
         raise SanctuaryException(
             error_code="TOKEN_REVOKED",
             message="Authentication session has been revoked. Please sign in again.",

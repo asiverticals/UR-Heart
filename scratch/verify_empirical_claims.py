@@ -9,7 +9,7 @@ Tests:
 3. Modesty veil photo URL leakage:
    - feed_service payload dictionary returns is_photo_veiled=True alongside unblurred raw photos and avatar_url
 4. Superadmin backdoor:
-   - deps.py get_superadmin validates X-Superadmin-Key header against settings.SUPERADMIN_SECRET_KEY ("BsaapSingh")
+   - deps.py get_superadmin validates X-Superadmin-Key header against settings.SUPERADMIN_SECRET_KEY ("[REDACTED_ADMIN_SECRET]")
 5. Media voice spark unauthenticated redirect:
    - GET /api/v1/media/voice/{user_id}/{filename} has no authentication dependency and returns 307 redirect
 6. In-app chat reporting disabled:

@@ -83,9 +83,10 @@ The platform spans four distinct infrastructure and computational tiers:
 
 The platform makes **zero direct client-to-Supabase calls** (the `supabase_flutter` SDK is completely absent from `pubspec.yaml`). Every database operation and storage presigned credential is mediated through the FastAPI backend.
 
-### 2.1 Tabular Connectivity Matrix Across All 8 Major User Journeys
+### 2.1 Tabular Connectivity Matrix Across All 8 Major User Journeys (Audited Baseline — Pre-Remediation)
 
-The table below traces every major end-to-end journey across UI widgets, Riverpod state controllers, backend endpoints, domain services, database tables, and object storage buckets.
+> [!NOTE]
+> This journey matrix records the empirical baseline state identified during the initial architecture audit. The identified route 404s, stubbed widgets, and missing handlers have been remediated across the application release stack.
 
 | Journey # | User Journey / Flow | Flutter UI Screens & Widgets | Riverpod Controllers / Providers | FastAPI Backend Endpoint & Method | Backend Service Layer | Supabase Tables & R2 Buckets | Connectivity Status |
 |---|---|---|---|---|---|---|---|
@@ -96,7 +97,7 @@ The table below traces every major end-to-end journey across UI widgets, Riverpo
 | **J5** | **Modesty Veil & Photo Revelation** | `SeekerProfileDetailScreen`, `GlassVeilWidget` | `seekerProfileControllerProvider` | `GET /api/v1/revelation/photo/status/{target_id}`<br>`GET /api/v1/revelation/profile/{target_id}`<br>`POST /api/v1/revelation/photo/request`<br>`POST /api/v1/revelation/photo/respond`<br>`POST /api/v1/revelation/photo/unlock-perk` | `photo_reveal_service.py` | `public.photo_reveal_consents`<br>`public.contact_reveal_tokens`<br>`public.whatsapp_reveal_tokens` [Dangling] | **ARCHITECTURAL FLAW**: Raw photo fetched directly over HTTP; ₹39 unilateral bypass invalidates bilateral consent |
 | **J6** | **Gamified Growth & Ad SSV** | `GrowthHubScreen`, `MorningHarvestDialog`, `MindfulSlumberCard`, `AdWaterfallWidget` | `growthHubControllerProvider`, `adWaterfallServiceProvider` | `GET /api/v1/streak/status`<br>`POST /api/v1/streak/claim-morning-harvest`<br>`POST /api/v1/streak/heartbeat`<br>`GET /api/v1/ads/status`<br>`GET /api/v1/ads/ssv/{network}`<br>`POST /api/v1/ads/claim-reward` | `streak_engine.py`<br>`ad_ssv_service.py` | `public.users`<br>`public.ad_reward_ledger`<br>`public.processed_ad_transactions` | **BROKEN**: Flutter calls `POST /ads/claim-reward` (404); Ad waterfall simulates in debug and 100% fails in release |
 | **J7** | **Payments, Store & Billing** | `GrowthHubScreen`, `SanctuaryBillingService`, `PaymentService` | `sanctuaryBillingServiceProvider` | `GET /api/v1/store/catalog`<br>`GET /api/v1/store/balances`<br>`POST /api/v1/payments/create-order`<br>`POST /api/v1/payments/verify-checkout`<br>`POST /api/v1/payments/webhook/{gateway}` | `payment_service.py` | `public.in_app_purchases`<br>`public.pending_web_entitlements`<br>`public.users` | **UNSTABLE / POLICY RISK**: Flutter uses mock Razorpay checkout; direct Razorpay for digital goods breaches App Store 3.1.1 |
-| **J8** | **DPDP Legal Vault & Incineration** | `VaultLegalScreen`, `NomineeAssignmentDialog`, `GrievanceSubmissionDialog`, `AccountIncinerationDialog`, `SanctuarySettingsScreen` | `vaultControllerProvider` | `GET /api/v1/legal/nominee`<br>`POST /api/v1/legal/nominee`<br>`GET /api/v1/legal/grievances`<br>`POST /api/v1/legal/grievance`<br>`POST /api/v1/legal/data-export`<br>`DELETE /api/v1/legal/account` | `account_incineration_service.py`<br>`legal.py` | `public.data_nominees`<br>`public.grievance_dossiers`<br>`public.data_export_requests`<br>`public.users`<br>R2 prefix cascade | **BROKEN**: `/settings` and `/vault` routes orphaned (no UI entry points); cascade paradox destroys peer notification |
+| **J8** | **DPDP Legal Vault & Incineration** | `VaultLegalScreen`, `NomineeAssignmentDialog`, `GrievanceSubmissionDialog`, `AccountIncinerationDialog`, `SanctuarySettingsScreen` | `vaultControllerProvider` | `GET /api/v1/legal/nominee`<br>`POST /api/v1/legal/nominee`<br>`GET /api/v1/legal/grievances`<br>`POST /api/v1/legal/grievance`<br>`POST /api/v1/legal/data-export`<br>`DELETE /api/v1/legal/account` | `account_incineration_service.py`<br>`backend/app/api/v1/endpoints/legal.py` | `public.data_nominees`<br>`public.grievance_dossiers`<br>`public.data_export_requests`<br>`public.users`<br>R2 prefix cascade | **BROKEN**: `/settings` and `/vault` routes orphaned (no UI entry points); cascade paradox destroys peer notification |
 
 ---
 
@@ -213,9 +214,9 @@ Because the backend test suite executes against SQLite (`Base.metadata.create_al
 | `users` | 6 Game/Perk Columns | `super_likes_count`, `instant_bridge_passes`, `instant_contact_keys`, `has_unlimited_swipes`, `passport_expires_at`, `last_ad_watched_at` (`user.py#L67-72`) | **MISSING** from `public.users` in SQL migrations | Queries selecting or updating `User` crash on PostgreSQL with `UndefinedColumn` |
 | `swipes` | `direct_letter_text` | `direct_letter_text: Mapped[Optional[str]] = mapped_column(Text)` (`match_and_chat.py#L31`) | **MISSING** from `public.swipes` in SQL migrations | Superlikes with direct letters crash on insert |
 | `users` | `subscription_tier` | `CHECK (subscription_tier IN ('free', 'spark', 'flame', 'kindred', 'lifetime'))` (`user.py#L113`) | `CHECK (subscription_tier IN ('free', 'weekly', 'monthly', 'quarterly', 'lifetime'))` (`migration#L51`) | Purchasing a 'spark' or 'flame' tier triggers `CheckViolation` in PostgreSQL |
-| `ad_reward_ledger` | `ad_type` | Allows 11 ad types (`monetization.py#L37`) | Allows only 6 ad types (`migration#L180`) | Fulfilling daily boost or reveal ads triggers `CheckViolation` |
+| `ad_reward_ledger` | `ad_type` | Allows 11 ad types (`backend/app/models/domain/monetization.py#L37`) | Allows only 6 ad types (`migration#L180`) | Fulfilling daily boost or reveal ads triggers `CheckViolation` |
 | `blind_date_messages` | `id`, `encrypted_text` | `id: int (BIGINT)`, `encrypted_text: str` (`models/domain/blind_date.py#L121`) | `id UUID`, `ciphertext TEXT` (`migration#L381-388`) | Fatal column name and data type mismatch |
-| `grievance_dossiers` | `id` | `id: UUID` (`legal.py#L50`) | `id BIGINT IDENTITY` (`migration#L487`) | Fatal data type mismatch |
+| `grievance_dossiers` | `id` | `id: UUID` (`backend/app/models/domain/legal.py#L50`) | `id BIGINT IDENTITY` (`migration#L487`) | Fatal data type mismatch |
 | `device_fcm_tokens` | `id`, `is_active` | `id: int (BIGINT)`, `is_active: bool` (`notification.py#L14`) | `id UUID`, `active BOOLEAN` (`migration#L557`) | Fatal column name and data type mismatch |
 
 #### D. Missing Foreign Key Indexes (Cascade Locking & Sequential Scans)
@@ -285,7 +286,7 @@ The Flutter client previously invoked **7 distinct endpoint routes** that were m
   ```
 - **Expected Request Contract**: Authenticated GET with Bearer JWT.
 - **Expected Response Contract**: `SanctuaryResponse[List[ResonanceSeekerItem]]`.
-- **Root Cause**: No `resonances` router exists in `backend/app/api/v1/router.py`. Swiping and matches logic is partially housed under `feed.py` and `chat_closure.py`, but no dedicated endpoints expose incoming like decks or mutual match lists.
+- **Root Cause**: No `resonances` router exists in `backend/app/api/v1/router.py`. Swiping and matches logic is partially housed under `backend/app/api/v1/endpoints/feed.py` and `chat_closure.py`, but no dedicated endpoints expose incoming like decks or mutual match lists.
 - **Runtime Consequence**: Resonances tab (Bottom Nav Tab 1) fails to fetch data, catching an exception and setting `error: "HTTP 404"`.
 
 #### 5. `GET /api/v1/blind-date/eligibility` & 6. `POST /api/v1/blind-date/queue/join`
@@ -607,7 +608,7 @@ To transition the UR-Heart dating platform from its current disconnected state i
    - Remove `POST /api/v1/revelation/photo/unlock-perk` or convert it into a "Priority Reveal Request" that requires the recipient to explicitly accept before clear photos are unmasked.
    - Remove the "Instant Unveil (₹39)" button from `SeekerProfileDetailScreen`.
 3. **Secure Voice Spark Audio Redirect**:
-   - In `media.py#L118`, add `current_user: User = Depends(get_current_user)`.
+   - In `backend/app/api/v1/endpoints/media.py#L118`, add `current_user: User = Depends(get_current_user)`.
    - Verify that `current_user.id == user_id` or an active match/feed recommendation exists between `current_user.id` and `user_id` before returning the redirect URL.
 
 ---

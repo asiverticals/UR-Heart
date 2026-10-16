@@ -241,7 +241,7 @@ class _ChatsListScreenState extends ConsumerState<ChatsListScreen> {
         final peerName = match['peer_name']?.toString() ?? 'Seeker';
         final peerAvatar = match['peer_avatar']?.toString();
         final closureStatus = match['closure_status']?.toString() ?? 'active';
-        final isClosed = closureStatus != 'active';
+        final isClosed = closureStatus == 'closed_with_grace';
 
         return SanctuaryGlassContainer(
           borderRadius: 16,

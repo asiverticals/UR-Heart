@@ -98,23 +98,9 @@ CREATE TRIGGER trg_user_incineration_matches
     FOR EACH ROW
     EXECUTE FUNCTION public.handle_user_incineration_matches();
 
--- 4.2 Row-level trigger targeting only affected match rows when both user IDs become null
-CREATE OR REPLACE FUNCTION public.handle_orphaned_matches_cleanup()
-RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
-BEGIN
-    IF NEW.user1_id IS NULL AND NEW.user2_id IS NULL THEN
-        DELETE FROM public.matches WHERE id = NEW.id;
-    END IF;
-    RETURN NEW;
-END;
-$$;
-
+-- 4.2 Drop redundant legacy trigger (handle_user_incineration_matches handles match cleanup during participant deletion)
 DROP TRIGGER IF EXISTS trg_cleanup_orphaned_matches ON public.matches;
-CREATE TRIGGER trg_cleanup_orphaned_matches
-    AFTER UPDATE OF user1_id, user2_id ON public.matches
-    FOR EACH ROW
-    WHEN (NEW.user1_id IS NULL AND NEW.user2_id IS NULL)
-    EXECUTE FUNCTION public.handle_orphaned_matches_cleanup();
+DROP FUNCTION IF EXISTS public.handle_orphaned_matches_cleanup();
 
 -- 5. Deploy missing foreign key B-tree indexes to prevent sequential lockups on cascade deletions
 CREATE INDEX IF NOT EXISTS idx_matches_closed_by_user_id ON public.matches (closed_by_user_id) WHERE closed_by_user_id IS NOT NULL;
@@ -163,3 +149,7 @@ REVOKE EXECUTE ON FUNCTION public.is_superadmin() FROM anon;
 REVOKE EXECUTE ON FUNCTION public.is_active_match_participant(uuid) FROM anon;
 REVOKE EXECUTE ON FUNCTION public.is_user_blocked(uuid) FROM anon;
 REVOKE EXECUTE ON FUNCTION public.get_current_user_id() FROM anon;
+ 
+-- 9. Add token_version column for JWT invalidation tracking
+ALTER TABLE public.users
+    ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 1;

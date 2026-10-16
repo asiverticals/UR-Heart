@@ -152,11 +152,12 @@ def test_security_claims():
     print("[PASS] SEC-19: Cleartext chat message storage verified (encryptedText receives raw trimmed string)")
 
     # RLS Policy Flaws
-    # 1. data_export_requests has FOR ALL to authenticated
-    policy_stmt = [line for line in mig_sql.splitlines() if 'CREATE POLICY "data_export_all_owner"' in line]
-    assert len(policy_stmt) > 0, "Policy data_export_all_owner statement not found"
-    assert "FOR ALL TO authenticated" in policy_stmt[0], "Policy statement missing FOR ALL TO authenticated"
-    print("[PASS] RLS Flaw 1: data_export_requests FOR ALL policy verified specifically within policy statement")
+    # 1. data_export_requests has FOR ALL to authenticated (extract full statement through terminator)
+    match = re.search(r'CREATE\s+POLICY\s+"data_export_all_owner"[^;]+;', mig_sql, re.MULTILINE | re.DOTALL)
+    assert match is not None, "Policy data_export_all_owner statement not found in mig_sql"
+    policy_full = match.group(0)
+    assert "FOR ALL TO authenticated" in policy_full, "Policy statement missing FOR ALL TO authenticated"
+    print("[PASS] RLS Flaw 1: data_export_requests FOR ALL policy verified across complete policy statement")
 
     # 2. photo_reveal_consents UPDATE policy evaluation
     assert 'CREATE POLICY "photo_reveal_update_target" ON public.photo_reveal_consents' in mig_sql

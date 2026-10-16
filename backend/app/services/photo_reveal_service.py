@@ -304,6 +304,13 @@ class PhotoRevealService:
                 status_code=403,
             )
 
+        if settings.ENVIRONMENT not in ("development", "test") and not settings.TESTING:
+            raise SanctuaryException(
+                error_code="STORE_VERIFICATION_UNAVAILABLE",
+                message="In-app store profile unlock verification is temporarily unavailable in production.",
+                status_code=503,
+            )
+
         # Validate purchase reference and guard against replay attacks
         if purchase_reference:
             existing_tx = await session.execute(

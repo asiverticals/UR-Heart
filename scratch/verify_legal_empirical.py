@@ -110,10 +110,11 @@ def verify_payments_parameter_tampering():
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    assert "product_identifier = payload.product_identifier" in content
-    assert "if not product_identifier:" in content
-    assert "amount_gross=None" in content
-    print("[PASS] Verified payments.py accepts client-supplied product_identifier and ignores billing amount check.")
+    # Verify authoritative SKU validation outcome in final verify_checkout path
+    assert "SKU_TAMPERING_DETECTED" in content
+    assert "authoritative_sku" in content
+    assert "payload.product_identifier != authoritative_sku" in content
+    print("[PASS] Verified verify_checkout actively validates authoritative order contract and rejects mismatched client-supplied SKU.")
 
 def verify_live_secrets_in_env():
     print("\n--- Security Check: Configuration Credential Presence in .env ---")

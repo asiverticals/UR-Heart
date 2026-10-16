@@ -236,8 +236,10 @@ def _get_contact_bridge_keys() -> list[bytes]:
         k = hashlib.sha256(jwt_key.encode()).digest()
         if k not in keys:
             keys.append(k)
+    if settings.ENVIRONMENT == "production" and not cb_key:
+        raise RuntimeError("Fatal: CONTACT_BRIDGE_SECRET_KEY is required in production.")
     if not keys:
-        keys.append(hashlib.sha256(b"ur-heart-default-bridge-key").digest())
+        raise RuntimeError("No encryption key configured for contact bridge.")
     return keys
 
 
@@ -264,7 +266,11 @@ def decrypt_contact_bridge(encrypted_handle: str) -> str:
     try:
         raw = base64.b64decode(payload)
         if len(raw) < 12:
-            return encrypted_handle
+            raise SanctuaryException(
+                error_code="DECRYPTION_FAILED",
+                message="Invalid encrypted contact bridge payload length.",
+                status_code=500,
+            )
         nonce, ciphertext = raw[:12], raw[12:]
         for key in _get_contact_bridge_keys():
             try:
@@ -272,7 +278,17 @@ def decrypt_contact_bridge(encrypted_handle: str) -> str:
                 return aesgcm.decrypt(nonce, ciphertext, None).decode()
             except Exception:
                 continue
-        return encrypted_handle
-    except Exception:
-        return encrypted_handle
+        raise SanctuaryException(
+            error_code="DECRYPTION_FAILED",
+            message="Failed to decrypt contact bridge handle with configured keys.",
+            status_code=500,
+        )
+    except SanctuaryException:
+        raise
+    except Exception as exc:
+        raise SanctuaryException(
+            error_code="DECRYPTION_FAILED",
+            message=f"Failed to decode contact bridge payload: {exc}",
+            status_code=500,
+        )
 

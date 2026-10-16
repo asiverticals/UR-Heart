@@ -143,7 +143,7 @@ async def get_dialogue_messages(
     msg_stmt = (
         select(Message)
         .where(Message.match_id == match_id)
-        .order_by(Message.created_at.asc(), Message.id.asc())
+        .order_by(Message.created_at.desc(), Message.id.desc())
         .limit(limit)
         .offset(offset)
     )
@@ -151,6 +151,7 @@ async def get_dialogue_messages(
     messages = msg_res.scalars().all()
 
     items = [MessageItemResponse.model_validate(m) for m in messages]
+    items.reverse()  # Restore ascending chronological order for client UI
     return SanctuaryResponse(
         data=items,
         meta={

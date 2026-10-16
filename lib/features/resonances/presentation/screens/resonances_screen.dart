@@ -165,6 +165,7 @@ class _ResonancesScreenState extends ConsumerState<ResonancesScreen>
     return RefreshIndicator(
       onRefresh: () => ref.read(resonancesControllerProvider.notifier).fetchResonances(),
       child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         itemCount: mutualMatches.length,
         separatorBuilder: (_, __) => const SizedBox(height: 12),
@@ -282,6 +283,7 @@ class _ResonancesScreenState extends ConsumerState<ResonancesScreen>
     return RefreshIndicator(
       onRefresh: () => ref.read(resonancesControllerProvider.notifier).fetchResonances(),
       child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         itemCount: incomingLikes.length,
         separatorBuilder: (_, __) => const SizedBox(height: 12),

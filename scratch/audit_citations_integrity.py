@@ -56,11 +56,16 @@ def resolve_exact_path(fn_str):
         "lib/features/navigation/presentation/screens",
         "reports",
     ]
+    matches = []
     for p in prefixes:
         candidate = os.path.join(BASE_DIR, p, clean)
         if os.path.exists(candidate) and os.path.isfile(candidate):
-            return os.path.relpath(candidate, BASE_DIR)
-            
+            matches.append(os.path.relpath(candidate, BASE_DIR))
+    if len(matches) == 1:
+        return matches[0]
+    elif len(matches) > 1:
+        print(f"  [AMBIGUITY ERROR] Unqualified citation '{clean}' matches multiple candidates: {matches}")
+        return None
     return None
 
 def check_citations(report_path):

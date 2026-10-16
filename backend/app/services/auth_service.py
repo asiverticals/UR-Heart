@@ -302,10 +302,10 @@ class AuthService:
                     status_code=401,
                 )
             user_id = uuid.UUID(user_id_raw)
-        except (jwt.PyJWTError, ValueError) as e:
+        except (jwt.PyJWTError, ValueError):
             raise SanctuaryException(
                 error_code="INVALID_REFRESH_TOKEN",
-                message=f"Invalid or expired refresh token: {str(e)}",
+                message="Invalid or expired refresh token.",
                 status_code=401,
             )
 
@@ -319,9 +319,9 @@ class AuthService:
                 status_code=404,
             )
 
-        # Validate token version revocation (SEC-02)
-        token_version = payload.get("token_version")
-        if token_version is not None and token_version < getattr(user, "token_version", 1):
+        # Validate token version revocation (SEC-02, CodeRabbit Issue #1)
+        token_version = payload.get("token_version", 0)
+        if not isinstance(token_version, int) or token_version < getattr(user, "token_version", 1):
             raise SanctuaryException(
                 error_code="INVALID_REFRESH_TOKEN",
                 message="Refresh token has been revoked.",

@@ -113,11 +113,17 @@ def test_validate_production_secrets():
     orig_jwt = settings.JWT_SECRET_KEY
     orig_sub = settings.SUPABASE_URL
     orig_key = settings.SUPABASE_SERVICE_ROLE_KEY
+    orig_db = settings.DATABASE_URL
+    orig_admin = settings.SUPERADMIN_SECRET_KEY
+    orig_cb = settings.CONTACT_BRIDGE_SECRET_KEY
     try:
         settings.ENVIRONMENT = "production"
         settings.JWT_SECRET_KEY = "too-short"
         settings.SUPABASE_URL = "https://test.supabase.co"
         settings.SUPABASE_SERVICE_ROLE_KEY = "test-service-key"
+        settings.SUPERADMIN_SECRET_KEY = "secure-superadmin-secret-32b-key"
+        settings.CONTACT_BRIDGE_SECRET_KEY = "secure-contact-bridge-32b-key"
+        settings.DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/urheart"
         with pytest.raises(RuntimeError, match="JWT_SECRET_KEY must be at least 32 characters"):
             validate_production_secrets()
 
@@ -129,6 +135,9 @@ def test_validate_production_secrets():
         settings.JWT_SECRET_KEY = orig_jwt
         settings.SUPABASE_URL = orig_sub
         settings.SUPABASE_SERVICE_ROLE_KEY = orig_key
+        settings.DATABASE_URL = orig_db
+        settings.SUPERADMIN_SECRET_KEY = orig_admin
+        settings.CONTACT_BRIDGE_SECRET_KEY = orig_cb
 
 
 @pytest.mark.asyncio

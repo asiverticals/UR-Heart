@@ -223,9 +223,9 @@ async def claim_ad_reward(
 
     ad_type = str(payload.get("ad_type", "extra_swipes"))
 
-    # 2. In production, unverified client claims without verified cryptographic proof or existing SSV record must be rejected
+    # 2. Require cryptographic proof for production and any non-whitelisted environment (Issue #3)
     completion_proof = payload.get("completion_proof") or payload.get("ssv_token")
-    if settings.ENVIRONMENT == "production":
+    if settings.ENVIRONMENT not in ("development", "test") and not settings.TESTING:
         is_verified = False
         if completion_proof and isinstance(completion_proof, str):
             key = (settings.SECRET_KEY or settings.JWT_SECRET_KEY or "").encode("utf-8")
@@ -259,8 +259,11 @@ async def claim_ad_reward(
                 detail=f"Reward claim rate limited: {res_status}",
             )
 
+        await session.refresh(current_user)
+        updated_balance = result.get("reward_balance", current_user.reward_balance)
+
         return SanctuaryResponse(
-            data={"status": "ok", "result": result, "reward_balance": current_user.reward_balance},
+            data={"status": "ok", "result": result, "reward_balance": updated_balance},
             message="Reward successfully claimed.",
         )
     except SanctuaryException as se:

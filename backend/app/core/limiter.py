@@ -5,18 +5,41 @@ from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
+import ipaddress
+from .config import settings
+
+def _is_trusted_proxy(ip_str: str) -> bool:
+    if not ip_str:
+        return False
+    trusted_raw = getattr(settings, "TRUSTED_PROXIES", "127.0.0.1,::1")
+    trusted_list = [p.strip() for p in trusted_raw.split(",") if p.strip()]
+    if ip_str in trusted_list:
+        return True
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        if ip.is_loopback:
+            return True
+        for t in trusted_list:
+            if "/" in t and ip in ipaddress.ip_network(t, strict=False):
+                return True
+    except ValueError:
+        pass
+    return False
+
 def get_trusted_client_ip(request: Request) -> str:
-    """Extracts true client IP honoring trusted reverse proxy headers (Cloudflare, ALB, reverse proxies)."""
-    cf_ip = request.headers.get("CF-Connecting-IP")
-    if cf_ip:
-        return cf_ip.strip()
-    x_forwarded_for = request.headers.get("X-Forwarded-For")
-    if x_forwarded_for:
-        return x_forwarded_for.split(",")[0].strip()
-    x_real_ip = request.headers.get("X-Real-IP")
-    if x_real_ip:
-        return x_real_ip.strip()
-    return get_remote_address(request)
+    """Extracts true client IP honoring trusted reverse proxy headers only when request originates from a trusted proxy."""
+    direct_ip = get_remote_address(request)
+    if _is_trusted_proxy(direct_ip):
+        cf_ip = request.headers.get("CF-Connecting-IP")
+        if cf_ip:
+            return cf_ip.strip()
+        x_forwarded_for = request.headers.get("X-Forwarded-For")
+        if x_forwarded_for:
+            return x_forwarded_for.split(",")[0].strip()
+        x_real_ip = request.headers.get("X-Real-IP")
+        if x_real_ip:
+            return x_real_ip.strip()
+    return direct_ip
 
 limiter = Limiter(
     key_func=get_trusted_client_ip,

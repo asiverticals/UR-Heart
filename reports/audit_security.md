@@ -90,7 +90,7 @@ The audit cataloged **20 distinct, verified security vulnerabilities** across th
                  [ FastAPI Microservice (Render / Port 8000) ]
                  - Middlewares: SlowAPI (Proxy IP collision), Insecure CORS
                  - Auth: Stateless JWT (No revocation), Hardcoded fallback secret
-                 - Superadmin Backdoor: Static key "BsaapSingh" & email bypass
+                 - Superadmin Backdoor: Static key "[REDACTED_ADMIN_SECRET]" & email bypass
                  - Payment Verification: Client SKU tampering (SEC-05)
                  - WebSocket Gateway: Unthrottled message frame relay (SEC-13)
                                       │
@@ -107,7 +107,7 @@ The platform's threat model evaluates threat actors against the STRIDE taxonomy:
 3. **Repudiation**: The lack of immutable audit logs on administrative escalation actions and payment SKU mismatches impairs forensic investigations.
 4. **Information Disclosure**: High-resolution photos are transmitted in full clarity over discovery feeds, reducing the "Sacred Modesty Veil" to a client-side cosmetic filter (`SEC-08`); private voice sparks are redirected publicly without authentication (`SEC-09`); all chat messages are stored in plaintext UTF-8 in the database (`SEC-19`); and committed production credentials in `.env` expose all cloud tenants (`SEC-18`).
 5. **Denial of Service**: Unthrottled WebSocket frames exhaust server memory and trigger asynchronous FCM push floods (`SEC-13`); lack of rate limiting on AI and Whisper endpoints exhausts external API quotas (`SEC-14`); unthrottled magic links exhaust email delivery credits (`SEC-03`); and unbounded chat queries crash the Python event loop (`SEC-17`).
-6. **Elevation of Privilege**: Submitting the header `X-Superadmin-Key: BsaapSingh` grants instant superadmin sentinel access (`SEC-12`), while connecting as database owner `postgres` bypasses all Row Level Security isolation (`SEC-10`).
+6. **Elevation of Privilege**: Submitting a static administrative header (`SEC-12`) grants unauthorized access, while connecting as database owner `postgres` bypasses all Row Level Security isolation (`SEC-10`).
 
 ---
 
@@ -846,10 +846,12 @@ async def redirect_voice_spark(
     storage: CloudflareR2StorageService = Depends(get_storage_service),
 ) -> RedirectResponse:
     # Generates a 5-minute access-controlled presigned URL ensuring the storage tier itself enforces authorization
+    if filename != "spark.m4a":
+        raise HTTPException(status_code=400, detail="Invalid voice spark asset requested.")
     try:
-        url = storage.generate_presigned_get_url(f"users/{user_id}/voice/{filename}", expires_in=300)
+        url = await asyncio.to_thread(storage.generate_presigned_get_url, f"users/{user_id}/voice/spark.m4a", expires_in=300)
     except Exception:
-        url = storage.get_public_cdn_url(f"users/{user_id}/voice/{filename}")
+        raise HTTPException(status_code=500, detail="Failed to generate secure presigned URL.")
     return RedirectResponse(url=url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 ```
 
@@ -990,14 +992,14 @@ In `.env`:
 ```
 SUPERADMIN_EMAIL="asiverticals@gmail.com"
 ADMIN_SUPERUSER_EMAIL="asiverticals@gmail.com"
-SUPERADMIN_SECRET_KEY="BsaapSingh"
+SUPERADMIN_SECRET_KEY="[REDACTED_ADMIN_SECRET]"
 ```
-1. The static superadmin key is a trivial 10-character string (`"BsaapSingh"`). Anyone passing `X-Superadmin-Key: BsaapSingh` accesses `/sentinel` diagnostics and admin endpoints.
+1. The static superadmin key is a hardcoded secret string (`"[REDACTED_ADMIN_SECRET]"`). Anyone passing `X-Superadmin-Key: [REDACTED_ADMIN_SECRET]` accesses `/sentinel` diagnostics and admin endpoints.
 2. The backend grants superadmin permissions to any user whose email string equals `asiverticals@gmail.com`, regardless of their database `role` or MFA verification.
 
 #### Realistic Exploitation Walkthrough
-1. An attacker discovers `SUPERADMIN_SECRET_KEY="BsaapSingh"` via leaked configuration files or git history.
-2. The attacker calls `GET /api/v1/sentinel` with `X-Superadmin-Key: BsaapSingh`.
+1. An attacker discovers `SUPERADMIN_SECRET_KEY="[REDACTED_ADMIN_SECRET]"` via leaked configuration files or git history.
+2. The attacker calls `GET /api/v1/sentinel` with `X-Superadmin-Key: [REDACTED_ADMIN_SECRET]`.
 3. The server responds with comprehensive infrastructure diagnostics (connection strings, API availability, encryption state).
 4. If the attacker registers or authenticates using Google OAuth with the email `asiverticals@gmail.com`, line 98 evaluates to `True`.
 5. The attacker gains unrestricted superadmin access to the KYC escalation desk (`/api/v1/admin/kyc/escalations`), allowing them to view unmasked identity documents and approve/reject any seeker on the platform.
@@ -1388,21 +1390,17 @@ Implement client-side envelope encryption (e.g. Signal Protocol or libsodium `cr
 - **Affected Component:** `lib/features/profile_setup/presentation/controllers/profile_setup_controller.dart#L359`, `lib/features/resonances/presentation/controllers/resonances_controller.dart#L44-L45`, `lib/features/blind_date/presentation/controllers/blind_date_controller.dart#L55`
 - **CWE:** CWE-758: Reliance on Undefined, Unspecified, or Implementation-Specific Behavior, CWE-440: Expected Behavior Violation
 
-#### Technical Description & Root Cause
-The Flutter client dispatches HTTP requests to routes that are not registered in FastAPI's `router.py`:
-- `POST /api/v1/profile/create`: Profile onboarding submission returns 404.
-- `GET /api/v1/resonances/incoming`: Mutual likes tab returns 404.
-- `GET /api/v1/resonances/mutual`: Mutual matches tab returns 404.
-- `GET /api/v1/blind-date/eligibility`: Blind date hub returns 404.
+#### Technical Description & Root Cause (Audited Pre-Remediation Baseline)
+In the audited baseline, the Flutter client dispatched HTTP requests to routes that were not registered in FastAPI's `router.py`:
+- `POST /api/v1/profile/create`: Profile onboarding submission returned 404.
+- `GET /api/v1/resonances/incoming`: Mutual likes tab returned 404.
+- `GET /api/v1/resonances/mutual`: Mutual matches tab returned 404.
+- `GET /api/v1/blind-date/eligibility`: Blind date hub returned 404.
 
-#### Realistic Exploitation Walkthrough
-1. A new user completes onboarding and taps "Complete Profile".
-2. The client sends `POST /api/v1/profile/create`.
-3. The server responds with HTTP 404 Not Found.
-4. The onboarding flow crashes, preventing account activation.
+*Remediation Update*: In the current release, all four endpoints have been implemented in `backend/app/api/v1/endpoints/profile.py`, `backend/app/api/v1/endpoints/resonances.py`, and `backend/app/api/v1/endpoints/blind_date.py`, and are registered in `backend/app/api/v1/router.py`. No endpoint 404 failures remain on these core client journeys.
 
 #### Concrete Code Remediation
-Implement the missing profile and resonance endpoints in `backend/app/api/v1/endpoints/` and register them in `backend/app/api/v1/router.py`.
+Ensure automated integration tests continuously verify route availability across client-facing endpoints in `backend/app/api/v1/router.py`.
 
 ---
 
@@ -1464,7 +1462,7 @@ Media uploads are managed through `CloudflareR2StorageService` (`backend/app/ser
   PHASE 0: EMERGENCY CONTAINMENT (< 24 Hours)
   ├── 1. Rotate all live production credentials committed in .env (SEC-18).
   ├── 2. Patch Razorpay SKU parameter tampering in verify-checkout (SEC-05).
-  ├── 3. Eliminate static superadmin gate key "BsaapSingh" and email bypass (SEC-12).
+  ├── 3. Eliminate static superadmin gate key and email bypass (SEC-12).
   └── 4. Restrict photo reveal unlock-perk to verified store receipts (SEC-07).
 
   PHASE 1: HIGH PRIORITY AUTHORIZATION & PRIVACY PATCHES (< 7 Days)

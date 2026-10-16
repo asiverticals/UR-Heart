@@ -138,6 +138,34 @@ class _MyPersonaScreenState extends ConsumerState<MyPersonaScreen> {
                       ],
                     ),
 
+                    if (_errorMessage != null && _profile.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      SanctuaryGlassContainer(
+                        borderRadius: 12,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 20),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                _errorMessage!,
+                                style: TextStyle(
+                                  fontFamily: SanctuaryTypography.sansFont,
+                                  color: tokens.textSecondary,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: _loadProfile,
+                              child: Text('Retry', style: TextStyle(color: tokens.glowTerracotta, fontSize: 12)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
                     const SizedBox(height: 20),
 
                     // 2. Persona Card
