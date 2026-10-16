@@ -42,7 +42,7 @@ class PresignedUploadResponse(BaseModel):
     """Response containing presigned S3v4 direct upload coordinates and public CDN reference."""
     success: bool = True
     upload_url: str
-    public_cdn_url: str
+    public_cdn_url: Optional[str] = None
     object_key: str
     expires_in: int = 300
     max_bytes: int = MAX_IMAGE_BYTES

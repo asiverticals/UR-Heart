@@ -118,6 +118,10 @@ def verify_payments_parameter_tampering():
 
 def verify_live_secrets_in_env():
     print("\n--- Security Check: Configuration Credential Presence in .env ---")
+    if not os.path.exists(".env"):
+        print("[PASS] Clean credential isolation verified: .env file is absent from environment/CI runner.")
+        return
+
     with open(".env", "r", encoding="utf-8") as f:
         env_content = f.read()
 

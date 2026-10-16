@@ -82,13 +82,19 @@ async def verify_checkout(
                 status_code=status.HTTP_403_FORBIDDEN,
             )
         authoritative_sku = cached_order.get("product_id")
-        if payload.product_identifier and authoritative_sku and payload.product_identifier != authoritative_sku:
+        if not authoritative_sku:
+            raise SanctuaryException(
+                error_code="ORDER_PRODUCT_NOT_SPECIFIED",
+                message="Authoritative order contract does not specify a valid product identifier.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        if payload.product_identifier and payload.product_identifier != authoritative_sku:
             raise SanctuaryException(
                 error_code="SKU_TAMPERING_DETECTED",
                 message="Submitted product identifier does not match authorized order contract.",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
-        product_identifier = authoritative_sku or payload.product_identifier
+        product_identifier = authoritative_sku
     else:
         if settings.TESTING or settings.ENVIRONMENT in ("development", "test"):
             product_identifier = payload.product_identifier

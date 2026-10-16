@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     WS_TICKET_EXPIRE_SECONDS: int = 60
     WS_BASE_URL: str = "wss://urheart.app/ws/chat"
     CONTACT_BRIDGE_SECRET_KEY: Optional[str] = None
-    TRUSTED_PROXIES: str = "127.0.0.1,::1"
+    TRUSTED_PROXIES: str = "127.0.0.1,::1"  # Comma-delimited trusted proxy IPs or CIDR subnets (e.g., "127.0.0.1,::1,10.0.0.0/8")
     # Scale Condition Feature Gates (Condition C1 & C2)
     BLIND_DATE_MIN_ACTIVE_USERS: int = 1000000
     ENABLE_BLIND_DATE_OVERRIDE: bool = False

@@ -226,9 +226,16 @@ async def claim_ad_reward(
     # 2. Require cryptographic proof for production and any non-whitelisted environment (Issue #3)
     completion_proof = payload.get("completion_proof") or payload.get("ssv_token")
     if settings.ENVIRONMENT not in ("development", "test") and not settings.TESTING:
+        raw_key = settings.SECRET_KEY or settings.JWT_SECRET_KEY
+        if not raw_key:
+            logger.error("Reward verification misconfigured: SECRET_KEY/JWT_SECRET_KEY is empty")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Reward verification is not configured on this server.",
+            )
         is_verified = False
         if completion_proof and isinstance(completion_proof, str):
-            key = (settings.SECRET_KEY or settings.JWT_SECRET_KEY or "").encode("utf-8")
+            key = raw_key.encode("utf-8")
             expected_sig = hmac.new(
                 key,
                 f"{current_user.id}:{clean_tx}:{ad_type}".encode("utf-8"),

@@ -30,15 +30,25 @@ def get_trusted_client_ip(request: Request) -> str:
     """Extracts true client IP honoring trusted reverse proxy headers only when request originates from a trusted proxy."""
     direct_ip = get_remote_address(request)
     if _is_trusted_proxy(direct_ip):
+        candidate = None
         cf_ip = request.headers.get("CF-Connecting-IP")
         if cf_ip:
-            return cf_ip.strip()
-        x_forwarded_for = request.headers.get("X-Forwarded-For")
-        if x_forwarded_for:
-            return x_forwarded_for.split(",")[0].strip()
-        x_real_ip = request.headers.get("X-Real-IP")
-        if x_real_ip:
-            return x_real_ip.strip()
+            candidate = cf_ip.strip()
+        else:
+            x_forwarded_for = request.headers.get("X-Forwarded-For")
+            if x_forwarded_for:
+                candidate = x_forwarded_for.split(",")[0].strip()
+            else:
+                x_real_ip = request.headers.get("X-Real-IP")
+                if x_real_ip:
+                    candidate = x_real_ip.strip()
+
+        if candidate:
+            try:
+                ipaddress.ip_address(candidate)
+                return candidate
+            except ValueError:
+                pass
     return direct_ip
 
 limiter = Limiter(

@@ -320,8 +320,8 @@ class AuthService:
             )
 
         # Validate token version revocation (SEC-02, CodeRabbit Issue #1)
-        token_version = payload.get("token_version", 0)
-        if not isinstance(token_version, int) or token_version < getattr(user, "token_version", 1):
+        token_version = payload.get("token_version", 1)
+        if isinstance(token_version, bool) or not isinstance(token_version, int) or token_version < getattr(user, "token_version", 1):
             raise SanctuaryException(
                 error_code="INVALID_REFRESH_TOKEN",
                 message="Refresh token has been revoked.",

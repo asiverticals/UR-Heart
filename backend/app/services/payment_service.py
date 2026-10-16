@@ -169,6 +169,11 @@ class PaymentService:
                         "amount_inr": amount_inr,
                         "amount_paise": amount_paise,
                     }
+                    if order_id in self.order_cache:
+                        self.order_cache.move_to_end(order_id)
+                    else:
+                        if len(self.order_cache) >= self.max_cache_size:
+                            self.order_cache.popitem(last=False)
                     self.order_cache[order_id] = order_info
                     return order_info
         except Exception:

@@ -197,8 +197,10 @@ class _MyPersonaScreenState extends ConsumerState<MyPersonaScreen> {
                             style: SanctuaryTypography.titleH2(tokens.textPrimary, isDark: isDark),
                           ),
                           const SizedBox(height: 6),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            spacing: 8,
+                            runSpacing: 8,
                             children: [
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -228,7 +230,6 @@ class _MyPersonaScreenState extends ConsumerState<MyPersonaScreen> {
                                   ],
                                 ),
                               ),
-                              const SizedBox(width: 8),
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                 decoration: BoxDecoration(
@@ -237,6 +238,7 @@ class _MyPersonaScreenState extends ConsumerState<MyPersonaScreen> {
                                 ),
                                 child: Text(
                                   'Tier: ${subscriptionTier.toUpperCase()}',
+                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,

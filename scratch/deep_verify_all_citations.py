@@ -81,14 +81,17 @@ for rep in REPORTS:
     with open(os.path.join(BASE_DIR, rep), "r", encoding="utf-8") as f:
         text = f.read()
 
-    pattern = re.compile(r'(`)?([a-zA-Z0-9_\-\.\/]+\.(dart|py|sql|yaml|yml|json|env|md|Dockerfile))(#L(\d+)(?:-L?(\d+))?)?(`)?')
-    matches = pattern.findall(text)
+    pattern = re.compile(
+        r'(`)?(?P<path>\.env|Dockerfile|[a-zA-Z0-9_\-\.\/]+\.(?:dart|py|sql|yaml|yml|json|env|md))'
+        r'(?:#L(?P<start>\d+)(?:-L?(?P<end>\d+))?)?(`)?'
+    )
+    matches = list(pattern.finditer(text))
     
     unique_refs = set()
     for m in matches:
-        fn = m[1]
-        s = m[4] if m[4] else None
-        e = m[5] if m[5] else None
+        fn = m.group("path")
+        s = m.group("start")
+        e = m.group("end")
         unique_refs.add((fn, s, e))
 
     found_count = 0

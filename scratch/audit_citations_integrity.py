@@ -76,16 +76,19 @@ def check_citations(report_path):
     with open(report_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    pattern = re.compile(r'(`)?([a-zA-Z0-9_\-\.\/]+\.(dart|py|sql|yaml|yml|json|env|md|Dockerfile))(#L(\d+)(?:-L?(\d+))?)?(`)?')
+    pattern = re.compile(
+        r'(`)?(?P<path>\.env|Dockerfile|[a-zA-Z0-9_\-\.\/]+\.(?:dart|py|sql|yaml|yml|json|env|md))'
+        r'(?:#L(?P<start>\d+)(?:-L?(?P<end>\d+))?)?(`)?'
+    )
     
-    matches = pattern.findall(content)
+    matches = list(pattern.finditer(content))
     print(f"Total potential file references matched: {len(matches)}")
     
     unique_refs = set()
     for m in matches:
-        filepath = m[1]
-        line_start = m[4] if m[4] else None
-        line_end = m[5] if m[5] else None
+        filepath = m.group("path")
+        line_start = m.group("start")
+        line_end = m.group("end")
         unique_refs.add((filepath, line_start, line_end))
         
     print(f"Unique file & line references: {len(unique_refs)}")

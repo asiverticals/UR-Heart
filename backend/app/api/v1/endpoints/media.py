@@ -68,7 +68,8 @@ async def request_presigned_upload_url(
         content_length=req.file_size_bytes,
         expires_in=300,
     )
-    cdn_url = storage.get_public_cdn_url(object_key)
+    # Voice sparks are private audio assets protected by mutual match authorization; omit public CDN URL
+    cdn_url = None if req.asset_type == "voice_spark" else storage.get_public_cdn_url(object_key)
 
     return PresignedUploadResponse(
         success=True,
