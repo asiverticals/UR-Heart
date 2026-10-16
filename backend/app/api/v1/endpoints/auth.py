@@ -71,6 +71,7 @@ async def google_sync(
         session=db,
         dob=payload.dob,
         age_intent_token=payload.age_intent_token,
+        device_fingerprint=payload.device_fingerprint,
     )
 
 @router.post(

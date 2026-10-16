@@ -66,14 +66,16 @@ class AuthService:
         return f"{token_payload}:{sig}"
 
     @staticmethod
-    def verify_age_intent_token(token: str, device_fingerprint: Optional[str] = None) -> Optional[date]:
+    def verify_age_intent_token(token: str, device_fingerprint: str) -> Optional[date]:
         """Validates cryptographic age intent token and extracts verified date of birth."""
         try:
+            if not token or not device_fingerprint:
+                return None
             parts = token.strip().split(":")
             if len(parts) != 3:
                 return None
             fp, dob_str, sig = parts
-            if device_fingerprint and fp != device_fingerprint:
+            if fp != device_fingerprint:
                 return None
             expected_payload = f"{fp}:{dob_str}"
             expected_sig = hmac.new(settings.SECRET_KEY.encode(), expected_payload.encode(), hashlib.sha256).hexdigest()
@@ -134,16 +136,28 @@ class AuthService:
         session: AsyncSession,
         dob: Optional[date] = None,
         age_intent_token: Optional[str] = None,
+        device_fingerprint: Optional[str] = None,
     ) -> TokenResponse:
         """Exchanges verified Google RS256 token claims for an authenticated Sanctuary session."""
         now = datetime.now(timezone.utc)
 
+        # Canonicalize device identifier across registration and authentication flows (Issues #1 & #2)
+        canonical_device_id = device_fingerprint or installation_uuid
+
+        # Require a valid device identifier before enforcing device-bound age checks
+        if age_intent_token and not canonical_device_id:
+            raise SanctuaryException(
+                error_code="DEVICE_IDENTIFIER_REQUIRED",
+                message="A device identifier is required to verify device-bound age verification.",
+                status_code=400,
+            )
+
         # Check active device quarantine before processing authentication / registration (Issue #3)
-        if installation_uuid:
+        if canonical_device_id:
             stmt_quarantine = (
                 select(UnderageQuarantineRegistry)
                 .where(
-                    UnderageQuarantineRegistry.device_hash == installation_uuid,
+                    UnderageQuarantineRegistry.device_hash == canonical_device_id,
                     UnderageQuarantineRegistry.quarantine_until > now,
                 )
                 .order_by(UnderageQuarantineRegistry.quarantine_until.desc())
@@ -190,7 +204,13 @@ class AuthService:
             # Mandate verified adult DOB under DPDP Act § 9 & POCSO Act (Issue #4)
             target_dob = None
             if age_intent_token:
-                target_dob = AuthService.verify_age_intent_token(age_intent_token, installation_uuid)
+                if not canonical_device_id:
+                    raise SanctuaryException(
+                        error_code="DEVICE_IDENTIFIER_REQUIRED",
+                        message="A device identifier is required to verify device-bound age verification.",
+                        status_code=400,
+                    )
+                target_dob = AuthService.verify_age_intent_token(age_intent_token, canonical_device_id)
                 if not target_dob:
                     raise SanctuaryException(
                         error_code="INVALID_AGE_TOKEN",
@@ -212,8 +232,8 @@ class AuthService:
             today = date.today()
             age = today.year - target_dob.year - ((today.month, today.day) < (target_dob.month, target_dob.day))
             if age < 18:
-                if installation_uuid:
-                    await AuthService.record_underage_quarantine(installation_uuid, target_dob, age, session)
+                if canonical_device_id:
+                    await AuthService.record_underage_quarantine(canonical_device_id, target_dob, age, session)
                 raise SanctuaryException(
                     error_code="UNDERAGE_ACCESS_PROHIBITED",
                     message="Seekers must be at least 18 years of age.",
@@ -234,14 +254,14 @@ class AuthService:
                 referral_code=f"SANCTUARY-{uuid.uuid4().hex[:12].upper()}",
                 avatar_url=claims.get("picture"),
                 is_profile_completed=False,
-                last_installation_uuid=installation_uuid,
+                last_installation_uuid=canonical_device_id,
             )
             session.add(user)
             await session.commit()
             await session.refresh(user)
         else:
-            if installation_uuid and user.last_installation_uuid != installation_uuid:
-                user.last_installation_uuid = installation_uuid
+            if canonical_device_id and user.last_installation_uuid != canonical_device_id:
+                user.last_installation_uuid = canonical_device_id
                 await session.commit()
 
         user_tv = getattr(user, "token_version", 1)

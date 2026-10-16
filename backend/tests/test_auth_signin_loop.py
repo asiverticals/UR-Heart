@@ -388,4 +388,57 @@ async def test_google_sync_with_age_intent_token_success(override_db):
         assert user.dob == adult_dob
 
 
+@pytest.mark.asyncio
+async def test_google_sync_age_token_requires_device_id(override_db):
+    """Test 13: Google OAuth sync requires device identifier when verifying device-bound age intent token."""
+    from backend.app.services.auth_service import AuthService
+
+    device_fp = "f" * 64
+    adult_dob = safe_years_ago(21)
+    token = AuthService.generate_age_intent_token(adult_dob, device_fp)
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/auth/google-sync",
+            json={
+                "id_token": "mocked.valid.rs256.id_token.payload." + "x" * 30,
+                "age_intent_token": token,
+            },
+        )
+    assert resp.status_code == 400
+    assert resp.json()["error_code"] == "DEVICE_IDENTIFIER_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_google_sync_age_token_device_mismatch_rejected(override_db):
+    """Test 14: Age intent token bound to device A is rejected when submitted by device B."""
+    from backend.app.services.auth_service import AuthService
+
+    device_a = "a" * 64
+    device_b = "b" * 64
+    adult_dob = safe_years_ago(21)
+    token = AuthService.generate_age_intent_token(adult_dob, device_a)
+
+    mock_claims = {
+        "sub": "google_uid_mismatch_test_456",
+        "email": "mismatch.test@gmail.com",
+        "email_verified": True,
+        "name": "Mismatch Seeker",
+        "picture": None,
+    }
+
+    with patch("backend.app.services.auth_service.verify_google_id_token", new_callable=AsyncMock, return_value=mock_claims):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/auth/google-sync",
+                json={
+                    "id_token": "mocked.valid.rs256.id_token.payload." + "x" * 30,
+                    "installation_uuid": device_b,
+                    "age_intent_token": token,
+                },
+            )
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "INVALID_AGE_TOKEN"
+
+
 

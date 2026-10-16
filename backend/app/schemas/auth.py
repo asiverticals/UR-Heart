@@ -17,6 +17,7 @@ class GoogleSyncRequest(BaseModel):
 
     id_token: str = Field(..., min_length=50, description="RS256 Google JWT token")
     installation_uuid: Optional[str] = Field(None, max_length=64, description="Client hardware UUID")
+    device_fingerprint: Optional[str] = Field(None, min_length=32, max_length=64, description="Canonical SHA-256 hardware hash")
     dob: Optional[date] = Field(None, description="Verified adult date of birth (mandatory for new accounts under DPDP § 9)")
     age_intent_token: Optional[str] = Field(None, max_length=256, description="Cryptographic age verification token issued by register-intent")
 

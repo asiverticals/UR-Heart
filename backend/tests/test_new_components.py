@@ -372,6 +372,15 @@ async def test_legal_statutory_and_emergency_sla(db_session, make_user):
             diff_days = (due_resolution - ack).total_seconds() / 86400
             assert 14.0 < diff_days <= 15.0
 
+            # Verify grievance listing returns emergency takedown deadline
+            list_resp = await client.get("/api/v1/legal/grievances")
+            assert list_resp.status_code == 200
+            list_items = list_resp.json()["data"]
+            assert len(list_items) >= 1
+            matched_item = next(i for i in list_items if i["dossier_reference_id"] == data["dossier_reference_id"])
+            assert matched_item["emergency_takedown_due_at"] is not None
+            assert matched_item["statutory_resolution_due_at"] is not None
+
             # 2. Statutory disclosures
             terms_resp = await client.get("/api/v1/legal/terms")
             assert terms_resp.status_code == 200

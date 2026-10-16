@@ -185,7 +185,23 @@ class LegalVaultService:
         items = []
         for d in dossiers:
             ack_dt = d.acknowledgment_sent_at or d.created_at
-            due_dt = d.statutory_resolution_due_at or d.sla_deadline_at
+            if ack_dt and ack_dt.tzinfo is None:
+                ack_dt = ack_dt.replace(tzinfo=timezone.utc)
+
+            due_dt = d.statutory_resolution_due_at
+            if due_dt and due_dt.tzinfo is None:
+                due_dt = due_dt.replace(tzinfo=timezone.utc)
+
+            emergency_due = None
+            if d.violation_category in ("explicit_content", "impersonation", "underage", "ncii"):
+                emergency_due = d.sla_deadline_at
+                if emergency_due and emergency_due.tzinfo is None:
+                    emergency_due = emergency_due.replace(tzinfo=timezone.utc)
+
+            created_dt = d.created_at
+            if created_dt and created_dt.tzinfo is None:
+                created_dt = created_dt.replace(tzinfo=timezone.utc)
+
             items.append({
                 "dossier_reference_id": d.dossier_reference_id,
                 "violation_category": d.violation_category,
@@ -193,7 +209,8 @@ class LegalVaultService:
                 "status": d.status,
                 "acknowledgment_sent_at": ack_dt.isoformat() if ack_dt else "",
                 "statutory_resolution_due_at": due_dt.isoformat() if due_dt else "",
-                "created_at": d.created_at.isoformat() if d.created_at else "",
+                "emergency_takedown_due_at": emergency_due.isoformat() if emergency_due else None,
+                "created_at": created_dt.isoformat() if created_dt else "",
             })
         return items
 

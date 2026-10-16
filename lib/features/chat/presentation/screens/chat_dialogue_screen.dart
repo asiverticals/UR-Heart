@@ -100,11 +100,20 @@ class _ChatDialogueScreenState extends ConsumerState<ChatDialogueScreen> {
               Navigator.of(ctx).pop();
               final controller = ref.read(chatDialogueControllerProvider(widget.matchId).notifier);
               final blocked = await controller.blockPeer(widget.peerId, reason: 'safety_concern');
-              if (blocked && mounted) {
+              if (!mounted) return;
+              if (blocked) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Seeker has been blocked.')),
                 );
                 context.pop();
+              } else {
+                final currentError = ref.read(chatDialogueControllerProvider(widget.matchId)).errorMessage;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(currentError ?? 'Unable to block seeker. Please check your network and try again.'),
+                    backgroundColor: Colors.redAccent,
+                  ),
+                );
               }
             },
             child: const Text('Block', style: TextStyle(color: Colors.white)),

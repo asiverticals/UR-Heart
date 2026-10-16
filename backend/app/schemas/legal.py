@@ -56,6 +56,7 @@ class GrievanceDossierItem(BaseModel):
     status: str
     acknowledgment_sent_at: str
     statutory_resolution_due_at: str
+    emergency_takedown_due_at: Optional[str] = None
     created_at: str
 
 class DataExportResponse(BaseModel):
