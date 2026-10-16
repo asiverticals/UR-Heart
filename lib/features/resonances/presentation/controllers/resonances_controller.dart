@@ -33,6 +33,7 @@ class ResonancesState {
 
 class ResonancesController extends StateNotifier<ResonancesState> {
   final SanctuaryHttpClient _client;
+  final Set<String> _pendingTargets = {};
 
   ResonancesController(this._client) : super(const ResonancesState()) {
     fetchResonances();
@@ -54,6 +55,25 @@ class ResonancesController extends StateNotifier<ResonancesState> {
     } catch (e) {
       if (!mounted) return;
       state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
+  Future<bool> respondToSwipe({required String targetId, required String swipeType}) async {
+    if (_pendingTargets.contains(targetId)) {
+      return false;
+    }
+    _pendingTargets.add(targetId);
+    try {
+      await _client.post('/api/v1/feed/swipe', body: {
+        'target_id': targetId,
+        'swipe_type': swipeType,
+      });
+      await fetchResonances();
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      _pendingTargets.remove(targetId);
     }
   }
 }

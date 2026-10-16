@@ -1,6 +1,6 @@
 import asyncio
 from uuid import UUID
-from fastapi import APIRouter, Depends, Path, status
+from fastapi import APIRouter, Depends, HTTPException, Path, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -118,8 +118,39 @@ async def delete_moment_asset(
 async def redirect_voice_spark(
     user_id: UUID,
     filename: str,
+    current_user: User = Depends(get_current_user),
     storage: CloudflareR2StorageService = Depends(get_storage_service),
+    session: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
-    """Performs HTTP 307 temporary redirect to Cloudflare Edge CDN for Voice Spark streaming."""
-    cdn_url = storage.get_public_cdn_url(f"users/{user_id}/voice/{filename}")
-    return RedirectResponse(url=cdn_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+    """Performs HTTP 307 temporary redirect to access-controlled presigned URL for Voice Spark streaming."""
+    # Authorization check: Seeker can access own voice spark; accessing another seeker's
+    # voice spark requires an active mutual match.
+    if current_user.id != user_id:
+        from sqlalchemy import select, or_, and_
+        try:
+            from ....models.domain.match_and_chat import Match
+        except (ImportError, ValueError):
+            from backend.app.models.domain.match_and_chat import Match
+
+        stmt = select(Match).where(
+            or_(
+                and_(Match.user1_id == current_user.id, Match.user2_id == user_id),
+                and_(Match.user1_id == user_id, Match.user2_id == current_user.id),
+            ),
+            Match.is_active.is_(True),
+        )
+        res = await session.execute(stmt)
+        if not res.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Unauthorized: You do not have permission to access this voice spark.",
+            )
+
+    try:
+        url = storage.generate_presigned_get_url(f"users/{user_id}/voice/{filename}", expires_in=300)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate secure presigned URL for voice spark audio.",
+        )
+    return RedirectResponse(url=url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)

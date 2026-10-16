@@ -9,6 +9,7 @@ import '../controllers/profile_setup_controller.dart';
 import '../widgets/photo_slot_grid.dart';
 import '../widgets/voice_spark_recorder_widget.dart';
 import '../widgets/eva_polish_modal.dart';
+import '../widgets/kyc_liveness_modal.dart';
 
 /// Master ProfileSetupScreen for Phase 4 Chunk 4.2 onboarding.
 /// Incorporates 5-slot photo grid, voice spark recorder, core identity fields,
@@ -399,6 +400,51 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                   ),
                   const SizedBox(height: 16),
                 ],
+
+                // Biometric Facial Liveness Verification
+                SanctuaryGlassContainer(
+                  borderRadius: 16,
+                  padding: const EdgeInsets.all(14),
+                  onTap: () async {
+                    await KycLivenessModal.show(context);
+                  },
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: tokens.glowPine.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(Icons.face_retouching_natural_rounded, color: tokens.glowPine),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Biometric Facial Liveness',
+                              style: TextStyle(
+                                fontFamily: SanctuaryTypography.sansFont,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                                color: tokens.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Tap to verify conscious presence (<60s frame purge)',
+                              style: SanctuaryTypography.caption(tokens.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.chevron_right_rounded, color: tokens.textTertiary),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
 
                 // CTA Button
                 SanctuaryGlassContainer(

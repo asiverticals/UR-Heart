@@ -9,6 +9,7 @@ try:
         GoogleSyncRequest,
         MagicLinkSendRequest,
         MagicLinkVerifyRequest,
+        RefreshTokenRequest,
         RegisterIntentRequest,
         TokenResponse,
     )
@@ -22,6 +23,7 @@ except (ImportError, ValueError):
         GoogleSyncRequest,
         MagicLinkSendRequest,
         MagicLinkVerifyRequest,
+        RefreshTokenRequest,
         RegisterIntentRequest,
         TokenResponse,
     )
@@ -144,3 +146,20 @@ async def sync_session(
         },
         message="Session active and synchronized.",
     )
+
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Refresh expired session tokens using a valid refresh token",
+)
+async def refresh_token(
+    payload: RefreshTokenRequest,
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    """Validates incoming HS256 refresh token and issues fresh access and refresh tokens."""
+    return await auth_service.refresh_user_token(
+        refresh_token=payload.refresh_token,
+        session=db,
+    )
+

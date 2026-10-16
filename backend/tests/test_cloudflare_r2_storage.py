@@ -409,10 +409,11 @@ async def test_delete_moment_endpoint(test_user):
         app.dependency_overrides.clear()
 
 @pytest.mark.asyncio
-async def test_voice_spark_redirect_endpoint(test_storage):
-    """Test 11: GET /api/v1/media/voice/{user_id}/{filename} performs HTTP 307 redirect using validated CDN."""
+async def test_voice_spark_redirect_endpoint(test_user, test_storage):
+    """Test 11: GET /api/v1/media/voice/{user_id}/{filename} performs HTTP 307 redirect for authorized self-access."""
     app.dependency_overrides[get_storage_service] = lambda: test_storage
-    user_id = uuid.uuid4()
+    app.dependency_overrides[get_current_user] = lambda: test_user
+    user_id = test_user.id
     filename = "spark.m4a"
     try:
         async with httpx.AsyncClient(
@@ -422,9 +423,32 @@ async def test_voice_spark_redirect_endpoint(test_storage):
         ) as client:
             resp = await client.get(f"/api/v1/media/voice/{user_id}/{filename}")
             assert resp.status_code == 307
-            assert (
-                resp.headers.get("location")
-                == f"https://media.urheart.app/users/{user_id}/voice/{filename}"
-            )
+            location = resp.headers.get("location")
+            assert f"users/{user_id}/voice/{filename}" in location
+            assert "X-Amz-Signature=" in location
+    finally:
+        app.dependency_overrides.clear()
+
+@pytest.mark.asyncio
+async def test_voice_spark_redirect_unauthorized(test_user, test_storage):
+    """Test 12: GET /api/v1/media/voice/{user_id}/{filename} rejects unauthorized seeker with HTTP 403."""
+    mock_db = AsyncMock()
+    mock_res = MagicMock()
+    mock_res.scalar_one_or_none.return_value = None  # No mutual match found
+    mock_db.execute.return_value = mock_res
+
+    app.dependency_overrides[get_storage_service] = lambda: test_storage
+    app.dependency_overrides[get_current_user] = lambda: test_user
+    app.dependency_overrides[get_db] = lambda: mock_db
+    unauthorized_target_id = uuid.uuid4()
+    filename = "spark.m4a"
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+            follow_redirects=False,
+        ) as client:
+            resp = await client.get(f"/api/v1/media/voice/{unauthorized_target_id}/{filename}")
+            assert resp.status_code == 403
     finally:
         app.dependency_overrides.clear()

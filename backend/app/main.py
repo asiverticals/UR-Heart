@@ -6,11 +6,46 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
+from datetime import datetime, timezone
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
 from .api.v1.endpoints import health, chat_ws
 from .api.v1.router import api_router
 from .core.config import settings, validate_production_secrets
 from .core.exceptions import SanctuaryException, sanctuary_exception_handler
 from .core.limiter import limiter, rate_limit_exceeded_handler
+
+from fastapi.encoders import jsonable_encoder
+
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    encoded_errors = jsonable_encoder(exc.errors())
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "error_code": "VALIDATION_ERROR",
+            "message": "Request validation failed.",
+            "detail": encoded_errors,
+            "details": {"errors": encoded_errors},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+async def starlette_http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    detail = exc.detail if isinstance(exc.detail, str) else "HTTP error encountered"
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "error_code": f"HTTP_{exc.status_code}",
+            "message": detail,
+            "detail": exc.detail,
+            "details": exc.detail if isinstance(exc.detail, dict) else {},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+        headers=getattr(exc, "headers", None),
+    )
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -42,6 +77,9 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # Custom Unified Exception Handlers
 app.add_exception_handler(SanctuaryException, sanctuary_exception_handler)
+app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
+app.add_exception_handler(StarletteHTTPException, starlette_http_exception_handler)
+
 
 
 # CORS Policy

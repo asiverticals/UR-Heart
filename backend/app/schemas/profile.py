@@ -10,14 +10,32 @@ ContactBridgeType = Literal["whatsapp", "instagram", "snapchat", "telegram", "si
 
 class ProfileCreate(BaseModel):
     """Initial seeker profile onboarding schema with statutory 18+ gate and coordinate fuzzing."""
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     full_name: str = Field(..., min_length=2, max_length=60)
     dob: date
     gender: GenderType
     interested_in: InterestedInType
     contact_bridge_type: ContactBridgeType = "whatsapp"
-    contact_bridge_raw: str = Field(..., min_length=3, max_length=64, description="Raw bridge handle to be AES-256 encrypted")
+    contact_bridge_raw: Optional[str] = Field(None, min_length=3, max_length=64, description="Raw bridge handle to be AES-256 encrypted")
+    contact_bridge_handle: Optional[str] = Field(None, min_length=3, max_length=64, description="Contact bridge handle from client")
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_bridge_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            handle = data.get("contact_bridge_handle")
+            raw_field = data.get("contact_bridge_raw")
+            selected = None
+            if isinstance(handle, str) and len(handle.strip()) >= 3:
+                selected = handle.strip()
+            elif isinstance(raw_field, str) and len(raw_field.strip()) >= 3:
+                selected = raw_field.strip()
+            if not selected:
+                raise ValueError("Either contact_bridge_handle or contact_bridge_raw must be provided with at least 3 characters")
+            data["contact_bridge_raw"] = selected
+            data["contact_bridge_handle"] = selected
+        return data
     bio: str = Field(default="", max_length=500)
     profession: str = Field(default="", max_length=80)
     education: str = Field(default="", max_length=100)
@@ -25,6 +43,8 @@ class ProfileCreate(BaseModel):
     avatar_url: Optional[str] = Field(None, max_length=500)
     latitude: Optional[Decimal] = Field(None, ge=-90.0, le=90.0)
     longitude: Optional[Decimal] = Field(None, ge=-180.0, le=180.0)
+    voice_spark_url: Optional[str] = Field(None, max_length=500)
+    voice_spark_duration: Optional[float] = Field(None, ge=0.0, le=60.0)
 
     @field_validator("dob")
     @classmethod

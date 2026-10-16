@@ -4,6 +4,7 @@ from .endpoints import (
     ads,
     ai,
     auth,
+    blind_date,
     chat_closure,
     chat_ws,
     eva,
@@ -15,6 +16,8 @@ from .endpoints import (
     media,
     notifications,
     payments,
+    profile,
+    resonances,
     revelation,
     store,
     streak,
@@ -73,6 +76,16 @@ api_router.include_router(legal.router, prefix="/legal", tags=["LegalVault"])
 api_router.include_router(legal.router, prefix="/vault", tags=["LegalVault"])
 api_router.include_router(incineration.router, prefix="/legal", tags=["AccountIncineration"])
 api_router.include_router(incineration.router, prefix="/vault", tags=["AccountIncineration"])
+
+# 17. Seeker Profile Lifecycle & Onboarding
+api_router.include_router(profile.router, prefix="/profile", tags=["Profile"])
+
+# 18. Resonances & Bilateral Matches
+api_router.include_router(resonances.router, prefix="/resonances", tags=["Resonances"])
+
+# 19. Blind Date Speed Dating (Condition C1 Gated)
+api_router.include_router(blind_date.router, prefix="/blind-date", tags=["BlindDate"])
+
 
 
 

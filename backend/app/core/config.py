@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     WS_TICKET_EXPIRE_SECONDS: int = 60
     WS_BASE_URL: str = "wss://urheart.app/ws/chat"
+    CONTACT_BRIDGE_SECRET_KEY: Optional[str] = None
 
     # Scale Condition Feature Gates (Condition C1 & C2)
     BLIND_DATE_MIN_ACTIVE_USERS: int = 1000000

@@ -1,7 +1,11 @@
+import base64
+import hashlib
+import os
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Union
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import httpx
 import jwt
 from jwt.algorithms import RSAAlgorithm
@@ -210,3 +214,61 @@ async def verify_google_id_token(id_token: str) -> Dict[str, Any]:
         "name": claims.get("name", "Seeker"),
         "picture": claims.get("picture"),
     }
+
+
+def _get_contact_bridge_keys() -> list[bytes]:
+    """Returns list of encryption keys for contact bridges: dedicated key first, then fallback keys."""
+    keys: list[bytes] = []
+    cb_key = getattr(settings, "CONTACT_BRIDGE_SECRET_KEY", None)
+    if cb_key:
+        keys.append(hashlib.sha256(cb_key.encode()).digest())
+    secret_key = getattr(settings, "SECRET_KEY", None)
+    if secret_key:
+        k = hashlib.sha256(secret_key.encode()).digest()
+        if k not in keys:
+            keys.append(k)
+    jwt_key = getattr(settings, "JWT_SECRET_KEY", None)
+    if jwt_key:
+        k = hashlib.sha256(jwt_key.encode()).digest()
+        if k not in keys:
+            keys.append(k)
+    if not keys:
+        keys.append(hashlib.sha256(b"ur-heart-default-bridge-key").digest())
+    return keys
+
+
+def encrypt_contact_bridge(raw_handle: str) -> str:
+    """Encrypts raw contact bridge handle using AES-256-GCM with version prefix v1:."""
+    if not raw_handle:
+        return ""
+    keys = _get_contact_bridge_keys()
+    primary_key = keys[0]
+    aesgcm = AESGCM(primary_key)
+    nonce = os.urandom(12)
+    ciphertext = aesgcm.encrypt(nonce, raw_handle.encode(), None)
+    encoded = base64.b64encode(nonce + ciphertext).decode()
+    return f"v1:{encoded}"
+
+
+def decrypt_contact_bridge(encrypted_handle: str) -> str:
+    """Decrypts contact bridge handle encrypted with AES-256-GCM, supporting version prefixes and key rotation fallback."""
+    if not encrypted_handle:
+        return ""
+    payload = encrypted_handle
+    if payload.startswith("v1:"):
+        payload = payload[3:]
+    try:
+        raw = base64.b64decode(payload)
+        if len(raw) < 12:
+            return encrypted_handle
+        nonce, ciphertext = raw[:12], raw[12:]
+        for key in _get_contact_bridge_keys():
+            try:
+                aesgcm = AESGCM(key)
+                return aesgcm.decrypt(nonce, ciphertext, None).decode()
+            except Exception:
+                continue
+        return encrypted_handle
+    except Exception:
+        return encrypted_handle
+

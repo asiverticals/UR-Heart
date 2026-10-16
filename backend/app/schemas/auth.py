@@ -30,9 +30,15 @@ class MagicLinkVerifyRequest(BaseModel):
 
     token: str = Field(..., min_length=1, description="Single-use cryptographic magic token")
 
+class RefreshTokenRequest(BaseModel):
+    """Refresh token payload."""
+    model_config = ConfigDict(extra="ignore")
+
+    refresh_token: str = Field(..., min_length=1, description="HS256 refresh token")
+
 class TokenResponse(BaseModel):
     """Standard Bearer token bundle issued upon authentic session establishment."""
-    model_config = ConfigDict(from_attributes=True, extra="forbid")
+    model_config = ConfigDict(from_attributes=True, extra="ignore")
 
     access_token: str
     refresh_token: str
@@ -40,3 +46,5 @@ class TokenResponse(BaseModel):
     expires_in: int = 3600
     user_id: UUID
     is_profile_completed: bool
+    role: str = "user"
+

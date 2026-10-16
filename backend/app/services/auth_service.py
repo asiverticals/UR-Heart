@@ -167,6 +167,7 @@ class AuthService:
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             user_id=user.id,
             is_profile_completed=user.is_profile_completed,
+            role=user.role,
         )
 
     @staticmethod
@@ -269,6 +270,64 @@ class AuthService:
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             user_id=user.id,
             is_profile_completed=user.is_profile_completed,
+            role=user.role,
+        )
+
+    @staticmethod
+    async def refresh_user_token(
+        refresh_token: str,
+        session: AsyncSession,
+    ) -> TokenResponse:
+        """Validates HS256 refresh token and issues fresh access and refresh tokens."""
+        import jwt
+        try:
+            payload = jwt.decode(
+                refresh_token,
+                settings.JWT_SECRET_KEY,
+                algorithms=[settings.JWT_ALGORITHM],
+            )
+            if payload.get("type") != "refresh":
+                raise SanctuaryException(
+                    error_code="INVALID_REFRESH_TOKEN",
+                    message="Token is not a valid refresh token.",
+                    status_code=401,
+                )
+            user_id_raw = payload.get("sub")
+            if not user_id_raw:
+                raise SanctuaryException(
+                    error_code="INVALID_REFRESH_TOKEN",
+                    message="Token subject missing.",
+                    status_code=401,
+                )
+            user_id = uuid.UUID(user_id_raw)
+        except (jwt.PyJWTError, ValueError) as e:
+            raise SanctuaryException(
+                error_code="INVALID_REFRESH_TOKEN",
+                message=f"Invalid or expired refresh token: {str(e)}",
+                status_code=401,
+            )
+
+        stmt = select(User).where(User.id == user_id, User.deleted_at.is_(None))
+        res = await session.execute(stmt)
+        user = res.scalars().first()
+        if not user:
+            raise SanctuaryException(
+                error_code="SEEKER_NOT_FOUND",
+                message="Seeker account associated with token not found.",
+                status_code=404,
+            )
+
+        new_access_token = create_access_token(user.id)
+        new_refresh_token = create_refresh_token(user.id)
+
+        return TokenResponse(
+            access_token=new_access_token,
+            refresh_token=new_refresh_token,
+            token_type="Bearer",
+            expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            user_id=user.id,
+            is_profile_completed=user.is_profile_completed,
+            role=user.role,
         )
 
 auth_service = AuthService()

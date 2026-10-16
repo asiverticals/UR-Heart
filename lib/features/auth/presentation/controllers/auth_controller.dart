@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/network/sanctuary_http_client.dart';
@@ -72,16 +73,108 @@ class AuthController extends StateNotifier<AuthState> {
   final SanctuaryHttpClient _client;
   final SecureSessionStorage _storage;
   final DeviceFingerprintService _fingerprintService;
+  final Ref? _ref;
   int _verificationGeneration = 0;
+  int _sessionEpoch = 0;
 
   AuthController({
     required SanctuaryHttpClient client,
     required SecureSessionStorage storage,
     required DeviceFingerprintService fingerprintService,
+    Ref? ref,
   })  : _client = client,
         _storage = storage,
         _fingerprintService = fingerprintService,
-        super(const AuthState());
+        _ref = ref,
+        super(const AuthState()) {
+    loadPersistedSession();
+  }
+
+  /// Restores authenticated user state from secure hardware storage on startup after validating session.
+  Future<void> loadPersistedSession() async {
+    final currentEpoch = _sessionEpoch;
+    try {
+      final token = await _storage.readAuthToken();
+      final userId = await _storage.readUserId();
+      final role = await _storage.readUserRole() ?? 'user';
+
+      if (token == null || token.isEmpty || userId == null || userId.isEmpty) {
+        return;
+      }
+
+      if (_isTokenExpired(token)) {
+        final refreshToken = await _storage.readRefreshToken();
+        if (refreshToken != null && refreshToken.isNotEmpty) {
+          try {
+            final res = await _client.post(
+              '/api/v1/auth/refresh',
+              body: {'refresh_token': refreshToken},
+            );
+            if (_sessionEpoch != currentEpoch) return;
+            final newAccessToken = res['access_token'] as String?;
+            final newRefreshToken = res['refresh_token'] as String?;
+            final newUserId = res['user_id']?.toString() ?? userId;
+            final newRole = res['role'] as String? ?? role;
+            if (newAccessToken != null && newAccessToken.isNotEmpty) {
+              await _storage.persistSession(
+                accessToken: newAccessToken,
+                refreshToken: newRefreshToken ?? refreshToken,
+                userId: newUserId,
+                role: newRole,
+              );
+              if (_sessionEpoch == currentEpoch && _ref != null) {
+                _ref.read(currentUserProvider.notifier).state = CurrentUser(
+                  id: newUserId,
+                  role: newRole,
+                );
+              }
+              return;
+            }
+          } on SanctuaryClientException catch (e) {
+            if (_sessionEpoch == currentEpoch &&
+                (e.statusCode == 401 || e.statusCode == 403)) {
+              await _storage.clearSession();
+            }
+            return;
+          } catch (_) {
+            return; // transient failure: keep stored session
+          }
+        }
+        if (_sessionEpoch == currentEpoch) {
+          await _storage.clearSession();
+        }
+        return;
+      }
+
+      if (_sessionEpoch == currentEpoch && _ref != null) {
+        _ref.read(currentUserProvider.notifier).state = CurrentUser(
+          id: userId,
+          role: role,
+        );
+      }
+    } catch (_) {}
+  }
+
+  bool _isTokenExpired(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return true;
+      final normalized = base64Url.normalize(parts[1]);
+      final payloadString = utf8.decode(base64Url.decode(normalized));
+      final Map<String, dynamic> payload = jsonDecode(payloadString);
+      if (payload.containsKey('exp')) {
+        final exp = payload['exp'];
+        final expSeconds = exp is int ? exp : int.tryParse(exp.toString());
+        if (expSeconds != null) {
+          final expiryDate = DateTime.fromMillisecondsSinceEpoch(expSeconds * 1000, isUtc: true);
+          return DateTime.now().toUtc().isAfter(expiryDate);
+        }
+      }
+      return false;
+    } catch (_) {
+      return true;
+    }
+  }
 
   /// Calculates chronological age in years accurately taking month and day into account.
   void updateDob(DateTime dob, {DateTime? referenceDate}) {
@@ -239,18 +332,76 @@ class AuthController extends StateNotifier<AuthState> {
           refreshToken.isNotEmpty &&
           userId != null &&
           userId.isNotEmpty) {
+        _sessionEpoch++;
         await _storage.persistSession(
           accessToken: accessToken,
           refreshToken: refreshToken,
           userId: userId,
           role: role,
         );
+        if (_ref != null) {
+          _ref.read(currentUserProvider.notifier).state = CurrentUser(
+            id: userId,
+            role: role,
+          );
+        }
         state = state.copyWith(isLoading: false);
         return true;
       }
       state = state.copyWith(
         isLoading: false,
         errorMessage: 'Invalid authentication payload received: missing tokens or user ID.',
+      );
+      return false;
+    } on SanctuaryClientException catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: e.message);
+      return false;
+    } catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: e.toString());
+      return false;
+    }
+  }
+
+  /// Exchanges single-use cryptographic magic link token for session tokens.
+  Future<bool> verifyMagicLink(String token) async {
+    state = state.copyWith(isLoading: true, errorMessage: null);
+
+    try {
+      final res = await _client.post(
+        '/api/v1/auth/verify-magic-link',
+        body: {'token': token},
+      );
+
+      final accessToken = res['access_token'] as String?;
+      final refreshToken = res['refresh_token'] as String?;
+      final userId = res['user_id']?.toString();
+      final role = res['role'] as String? ?? 'user';
+
+      if (accessToken != null &&
+          accessToken.isNotEmpty &&
+          refreshToken != null &&
+          refreshToken.isNotEmpty &&
+          userId != null &&
+          userId.isNotEmpty) {
+        _sessionEpoch++;
+        await _storage.persistSession(
+          accessToken: accessToken,
+          refreshToken: refreshToken,
+          userId: userId,
+          role: role,
+        );
+        if (_ref != null) {
+          _ref.read(currentUserProvider.notifier).state = CurrentUser(
+            id: userId,
+            role: role,
+          );
+        }
+        state = state.copyWith(isLoading: false);
+        return true;
+      }
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: 'Invalid verification payload received.',
       );
       return false;
     } on SanctuaryClientException catch (e) {
@@ -272,5 +423,6 @@ final authControllerProvider = StateNotifierProvider<AuthController, AuthState>(
     client: client,
     storage: storage,
     fingerprintService: fingerprintService,
+    ref: ref,
   );
 });
