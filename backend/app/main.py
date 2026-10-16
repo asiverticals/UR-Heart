@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 from fastapi import FastAPI, Request, Response
@@ -47,6 +48,8 @@ async def starlette_http_exception_handler(request: Request, exc: StarletteHTTPE
         headers=getattr(exc, "headers", None),
     )
 
+logger = logging.getLogger("urheart.main")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan context manager validating production invariants on boot."""
@@ -60,9 +63,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 traces_sample_rate=0.1,
                 send_default_pii=False,
             )
-            logging.getLogger("urheart.main").info("Sentry monitoring initialized successfully")
+            logger.info("Sentry monitoring initialized successfully")
         except Exception as exc:
-            logging.getLogger("urheart.main").warning("Sentry init failed: %s", exc)
+            logger.warning("Sentry init failed: %s", exc)
     yield
 
 app = FastAPI(

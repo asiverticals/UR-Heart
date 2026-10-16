@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import logging
 import os
 import time
 import uuid
@@ -133,8 +134,8 @@ async def _get_google_public_keys(force_refresh: bool = False) -> Dict[str, Any]
         _google_oauth_keys_cache["expires_at"] = now + max_age
         return keys
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error("Failed to retrieve Google public authentication keys: %s", e)
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to retrieve Google public authentication keys: %s", e)
         if not force_refresh and _google_oauth_keys_cache["keys"]:
             return _google_oauth_keys_cache["keys"]
         raise SanctuaryException(

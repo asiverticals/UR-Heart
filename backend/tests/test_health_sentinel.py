@@ -181,3 +181,14 @@ async def test_cors_credentials_security():
         assert resp.status_code == 200
         assert "access-control-allow-origin" not in resp.headers
 
+
+@pytest.mark.asyncio
+async def test_lifespan_with_sentry_dsn(monkeypatch):
+    """Test 8: Verify lifespan boots cleanly without NameError when SENTRY_DSN is configured."""
+    from backend.app.main import lifespan
+    monkeypatch.setattr(settings, "SENTRY_DSN", "https://dummy_key@o0.ingest.sentry.io/0")
+    # Execute lifespan startup and shutdown
+    async with lifespan(app):
+        assert True
+
+
