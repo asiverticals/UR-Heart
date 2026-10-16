@@ -3,6 +3,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, File, Request, UploadFile, status
 
 from ....core.exceptions import SanctuaryException
+from ....core.limiter import limiter
 from ....models.domain.user import User
 from ....schemas.ai import AICoachRequest, AICoachResponse, AITranscribeResponse
 from ....schemas.base_response import SanctuaryResponse
@@ -20,7 +21,9 @@ router = APIRouter()
     status_code=status.HTTP_200_OK,
     summary="Mindful Wingman AI Coaching & Conversational Reflection",
 )
+@limiter.limit("20/minute")
 async def get_ai_coaching(
+    request: Request,
     payload: AICoachRequest,
     current_user: User = Depends(get_current_user),
     ai: AIService = Depends(get_ai_service),
@@ -45,6 +48,7 @@ async def get_ai_coaching(
     status_code=status.HTTP_200_OK,
     summary="Transcribe Seeker 7-Second Voice Spark using Groq Whisper",
 )
+@limiter.limit("10/minute")
 async def transcribe_voice_spark(
     request: Request,
     audio_file: UploadFile = File(...),

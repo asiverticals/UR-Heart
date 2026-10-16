@@ -104,6 +104,7 @@ class User(Base, TimestampMixin):
     last_blind_date_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     blind_date_passes: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     role: Mapped[str] = mapped_column(String(20), default="user", server_default="user", nullable=False)
+    token_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMPTZ, nullable=True)
 
     __table_args__ = (

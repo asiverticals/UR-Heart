@@ -1,9 +1,10 @@
 from typing import Any, Dict, Optional
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
     from ....core.database import get_db
+    from ....core.limiter import limiter
     from ....models.domain.user import User
     from ....schemas.auth import (
         GoogleSyncRequest,
@@ -18,6 +19,7 @@ try:
     from ...deps import get_current_user
 except (ImportError, ValueError):
     from backend.app.core.database import get_db
+    from backend.app.core.limiter import limiter
     from backend.app.models.domain.user import User
     from backend.app.schemas.auth import (
         GoogleSyncRequest,
@@ -75,7 +77,9 @@ async def google_sync(
     status_code=status.HTTP_200_OK,
     summary="Issue passwordless single-use authentication magic link",
 )
+@limiter.limit("5/minute")
 async def send_magic_link(
+    request: Request,
     payload: MagicLinkSendRequest,
     db: AsyncSession = Depends(get_db),
 ) -> SanctuaryResponse[Dict[str, Any]]:

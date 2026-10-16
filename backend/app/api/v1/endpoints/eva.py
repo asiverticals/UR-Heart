@@ -1,7 +1,8 @@
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
+from ....core.limiter import limiter
 from ....models.domain.user import User
 from ....schemas.base_response import SanctuaryResponse
 from ....schemas.eva import EvaBioPolishRequest, EvaBioPolishResponse
@@ -21,7 +22,9 @@ def get_eva_service() -> EvaService:
     response_model=SanctuaryResponse[EvaBioPolishResponse],
     summary="Mindful profile bio refinement via Eva AI consciousness guide",
 )
+@limiter.limit("10/minute")
 async def polish_bio(
+    request: Request,
     payload: EvaBioPolishRequest,
     current_user: User = Depends(get_current_user),
     eva_service: EvaService = Depends(get_eva_service),

@@ -157,8 +157,9 @@ class AuthService:
                 user.last_installation_uuid = installation_uuid
                 await session.commit()
 
-        access_token = create_access_token(user.id)
-        refresh_token = create_refresh_token(user.id)
+        user_tv = getattr(user, "token_version", 1)
+        access_token = create_access_token(user.id, token_version=user_tv)
+        refresh_token = create_refresh_token(user.id, token_version=user_tv)
 
         return TokenResponse(
             access_token=access_token,
@@ -260,8 +261,9 @@ class AuthService:
         else:
             await session.commit()
 
-        access_token = create_access_token(user.id)
-        refresh_token = create_refresh_token(user.id)
+        user_tv = getattr(user, "token_version", 1)
+        access_token = create_access_token(user.id, token_version=user_tv)
+        refresh_token = create_refresh_token(user.id, token_version=user_tv)
 
         return TokenResponse(
             access_token=access_token,
@@ -317,8 +319,18 @@ class AuthService:
                 status_code=404,
             )
 
-        new_access_token = create_access_token(user.id)
-        new_refresh_token = create_refresh_token(user.id)
+        # Validate token version revocation (SEC-02)
+        token_version = payload.get("token_version")
+        if token_version is not None and token_version < getattr(user, "token_version", 1):
+            raise SanctuaryException(
+                error_code="INVALID_REFRESH_TOKEN",
+                message="Refresh token has been revoked.",
+                status_code=401,
+            )
+
+        user_tv = getattr(user, "token_version", 1)
+        new_access_token = create_access_token(user.id, token_version=user_tv)
+        new_refresh_token = create_refresh_token(user.id, token_version=user_tv)
 
         return TokenResponse(
             access_token=new_access_token,

@@ -83,14 +83,16 @@ app.add_exception_handler(StarletteHTTPException, starlette_http_exception_handl
 
 
 # CORS Policy
+cors_origins = [
+    "https://urheart.app",
+    "https://media.urheart.app",
+]
+if settings.ENVIRONMENT != "production":
+    cors_origins.extend(["http://localhost:3000", "http://localhost:8080"])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://urheart.app",
-        "https://media.urheart.app",
-        "http://localhost:3000",
-        "http://localhost:8080",
-    ],
+    allow_origins=cors_origins,
     allow_origin_regex=r"^https://([a-zA-Z0-9-]+\.)*urheart\.app$",
     allow_credentials=True,
     allow_methods=["*"],
@@ -101,6 +103,7 @@ app.add_middleware(
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"

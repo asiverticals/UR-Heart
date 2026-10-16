@@ -12,6 +12,7 @@ from ..models.domain.legal import BlockedUser
 from ..models.domain.monetization import InAppPurchase
 from ..models.domain.revelation import PhotoRevealConsent
 from ..models.domain.user import User
+from .payment_service import payment_service
 
 class PhotoRevealService:
     """Core domain service orchestrating the Modesty-First 35px Photo Blur Veil and Bilateral Reveal Handshake."""
@@ -312,6 +313,16 @@ class PhotoRevealService:
                 raise SanctuaryException(
                     error_code="PURCHASE_REFERENCE_ALREADY_USED",
                     message="Purchase reference has already been redeemed.",
+                    status_code=400,
+                )
+            receipt_valid = await payment_service.verify_store_receipt(
+                purchase_token=purchase_reference,
+                expected_product_id="profile_unlock_single",
+            )
+            if not receipt_valid:
+                raise SanctuaryException(
+                    error_code="INVALID_STORE_RECEIPT",
+                    message="App store receipt verification failed.",
                     status_code=400,
                 )
             tx_ref = purchase_reference

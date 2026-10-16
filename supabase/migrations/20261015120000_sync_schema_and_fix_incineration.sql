@@ -144,3 +144,22 @@ BEGIN
     RETURN OLD;
 END;
 $$;
+
+-- 8. Hardening view and function security privileges (Supabase Advisor Remediation)
+ALTER VIEW public.discovery_profiles SET (security_invoker = true);
+ALTER FUNCTION public.handle_user_incineration_matches() SET search_path = '';
+
+REVOKE EXECUTE ON FUNCTION public.handle_updated_at() FROM public, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.handle_user_auth_cleanup() FROM public, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.handle_user_cascade_cleanup() FROM public, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.handle_user_incineration_matches() FROM public, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.prevent_user_field_tampering() FROM public, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.prevent_user_insert_privileges() FROM public, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.protect_match_participants() FROM public, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.reset_queue_on_session_deletion() FROM public, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.check_blind_date_message_sender() FROM public, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.check_message_sender_is_participant() FROM public, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.is_superadmin() FROM anon;
+REVOKE EXECUTE ON FUNCTION public.is_active_match_participant(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.is_user_blocked(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.get_current_user_id() FROM anon;

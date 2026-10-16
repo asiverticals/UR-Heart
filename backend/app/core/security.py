@@ -26,8 +26,9 @@ def resolve_auth_uuid(raw_id: str) -> uuid.UUID:
 def create_access_token(
     subject: Union[str, uuid.UUID],
     expires_delta: Optional[timedelta] = None,
+    token_version: int = 1,
 ) -> str:
-    """Signs HS256 JWT access token with 60-minute default TTL."""
+    """Signs HS256 JWT access token with 60-minute default TTL and token version tracking."""
     now = datetime.now(timezone.utc)
     delta = expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     expire = now + delta
@@ -36,14 +37,16 @@ def create_access_token(
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
         "type": "access",
+        "token_version": token_version,
     }
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 def create_refresh_token(
     subject: Union[str, uuid.UUID],
     expires_delta: Optional[timedelta] = None,
+    token_version: int = 1,
 ) -> str:
-    """Signs HS256 JWT refresh token with 30-day default TTL."""
+    """Signs HS256 JWT refresh token with 30-day default TTL and token version tracking."""
     now = datetime.now(timezone.utc)
     delta = expires_delta or timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     expire = now + delta
@@ -52,6 +55,7 @@ def create_refresh_token(
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
         "type": "refresh",
+        "token_version": token_version,
     }
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 

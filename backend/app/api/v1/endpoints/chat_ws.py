@@ -124,9 +124,31 @@ async def _handle_chat_websocket(
     await manager.connect(user_id, websocket)
 
     try:
+        # Sliding-window per-connection frame rate limiter (SEC-13: max 20 frames/sec)
+        frame_timestamps: list[float] = []
+        MAX_FRAMES_PER_SECOND = 20
+
         while True:
             try:
-                data = await websocket.receive_json()
+                raw_frame = await websocket.receive_text()
+                now_ts = time.time()
+                frame_timestamps = [ts for ts in frame_timestamps if now_ts - ts < 1.0]
+                if len(frame_timestamps) >= MAX_FRAMES_PER_SECOND:
+                    logger.warning(
+                        "Seeker %s exceeded WebSocket frame rate limit (%d frames/sec)",
+                        user_id,
+                        MAX_FRAMES_PER_SECOND,
+                    )
+                    await websocket.send_json({
+                        "type": "error",
+                        "error_code": "RATE_LIMIT_EXCEEDED",
+                        "message": "WebSocket frame rate limit exceeded. Please slow down.",
+                    })
+                    await websocket.close(code=1008, reason="Policy Violation: Frame rate limit exceeded")
+                    break
+                frame_timestamps.append(now_ts)
+
+                data = json.loads(raw_frame)
             except (WebSocketDisconnect, RuntimeError):
                 break
             except (json.JSONDecodeError, ValueError):

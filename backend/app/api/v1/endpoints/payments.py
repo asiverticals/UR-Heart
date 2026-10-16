@@ -67,12 +67,25 @@ async def verify_checkout(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    # 2. Resolve product identifier
-    product_identifier = payload.product_identifier
-    if not product_identifier:
-        cached_order = payment_service.get_cached_order(payload.razorpay_order_id)
-        if cached_order:
-            product_identifier = cached_order.get("product_id")
+    # 2. Resolve product identifier with server-side precedence and ownership verification (SEC-05, SEC-06)
+    cached_order = payment_service.get_cached_order(payload.razorpay_order_id)
+    if cached_order:
+        cached_user_id = str(cached_order.get("user_id"))
+        if cached_user_id and cached_user_id != str(current_user.id):
+            raise SanctuaryException(
+                error_code="ORDER_OWNERSHIP_MISMATCH",
+                message="You do not own this order intent.",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        if payload.product_identifier and cached_order.get("product_id") and payload.product_identifier != cached_order.get("product_id"):
+            raise SanctuaryException(
+                error_code="SKU_TAMPERING_DETECTED",
+                message="Submitted product identifier does not match authorized order contract.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        product_identifier = cached_order.get("product_id") or payload.product_identifier
+    else:
+        product_identifier = payload.product_identifier
 
     if not product_identifier:
         raise SanctuaryException(

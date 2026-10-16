@@ -51,6 +51,15 @@ async def get_current_user(
             message="Seeker account inactive or soft-deleted.",
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
+
+    # Server-side token revocation validation (SEC-02)
+    token_version = payload.get("token_version")
+    if token_version is not None and token_version < getattr(user, "token_version", 1):
+        raise SanctuaryException(
+            error_code="TOKEN_REVOKED",
+            message="Authentication session has been revoked. Please sign in again.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
     return user
 
 async def get_superadmin(

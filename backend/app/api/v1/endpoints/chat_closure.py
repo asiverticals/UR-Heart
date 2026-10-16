@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -116,6 +116,8 @@ async def close_dialogue_with_grace(
 )
 async def get_dialogue_messages(
     match_id: UUID,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> SanctuaryResponse[List[MessageItemResponse]]:
@@ -142,6 +144,8 @@ async def get_dialogue_messages(
         select(Message)
         .where(Message.match_id == match_id)
         .order_by(Message.created_at.asc(), Message.id.asc())
+        .limit(limit)
+        .offset(offset)
     )
     msg_res = await db.execute(msg_stmt)
     messages = msg_res.scalars().all()
