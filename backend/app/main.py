@@ -11,8 +11,16 @@ from datetime import datetime, timezone
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+import hmac
 from .api.v1.endpoints import health, chat_ws
 from .api.v1.router import api_router
+from .api.web_pages import web_router
+from .api.admin_portal import (
+    router as admin_router,
+    SESSION_COOKIE_NAME,
+    verify_admin_session_token,
+    SUPERADMIN_EMAIL_CANONICAL,
+)
 from .core.config import settings, validate_production_secrets
 from .core.exceptions import SanctuaryException, sanctuary_exception_handler
 from .core.limiter import limiter, rate_limit_exceeded_handler
@@ -134,4 +142,53 @@ app.include_router(health.router)
 app.include_router(api_router, prefix="/api/v1")
 # Mount WebSocket relay directly at root (/ws/chat)
 app.include_router(chat_ws.ws_router)
+# Mount Production Web Portals directly at root (/store, /emergency-takedown, /grievance, /refund, /delete-account, /contact)
+app.include_router(web_router)
+# Mount Production Web Admin Portal directly at root (/admin, /admin/login, /admin/api/*)
+app.include_router(admin_router)
+
+# Superadmin Gatekeeper Middleware for /admin routes
+@app.middleware("http")
+async def admin_gatekeeper_middleware(request: Request, call_next):
+    path = request.url.path
+    if path == "/admin" or path.startswith("/admin/"):
+        # Explicitly allow public authentication entry points
+        if path in ("/admin/login", "/admin/api/login"):
+            return await call_next(request)
+
+        # 1. Check session cookie
+        cookie_token = request.cookies.get(SESSION_COOKIE_NAME)
+        admin_email = verify_admin_session_token(cookie_token) if cookie_token else None
+
+        # 2. Check Bearer token
+        if not admin_email:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                admin_email = verify_admin_session_token(auth_header[7:].strip())
+
+        # 3. Check X-Superadmin-Key header
+        if not admin_email:
+            admin_key = request.headers.get("X-Superadmin-Key", "").strip()
+            expected_secret = (settings.SUPERADMIN_SECRET_KEY or "").strip()
+            if admin_key and expected_secret and hmac.compare_digest(admin_key, expected_secret):
+                admin_email = SUPERADMIN_EMAIL_CANONICAL
+
+        if not admin_email:
+            # If API request under /admin/api/*, return HTTP 401
+            if path.startswith("/admin/api/"):
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "success": False,
+                        "error_code": "ADMIN_UNAUTHORIZED",
+                        "message": "Admin authentication required.",
+                        "detail": "Admin authentication required.",
+                    },
+                )
+            # If web portal request under /admin or /admin/*, redirect to /admin/login
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="/admin/login", status_code=303)
+
+    return await call_next(request)
+
 

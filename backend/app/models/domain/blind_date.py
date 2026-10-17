@@ -9,7 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     CheckConstraint,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, synonym
 from sqlalchemy.sql import func
 from .base import Base, TIMESTAMPTZ, BigIntPK, UniversalUUID
 
@@ -119,7 +119,11 @@ class BlindDateSession(Base):
 class BlindDateMessage(Base):
     __tablename__ = "blind_date_messages"
 
-    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UniversalUUID,
+        primary_key=True,
+        default=uuid.uuid4,
+    )
     session_id: Mapped[uuid.UUID] = mapped_column(
         UniversalUUID,
         ForeignKey("blind_date_sessions.id", ondelete="CASCADE"),
@@ -130,12 +134,13 @@ class BlindDateMessage(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    recipient_id: Mapped[uuid.UUID] = mapped_column(
+    recipient_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UniversalUUID,
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
     )
     encrypted_text: Mapped[str] = mapped_column(Text, nullable=False)
+    ciphertext = synonym("encrypted_text")
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMPTZ,
         server_default=func.now(),
@@ -143,5 +148,5 @@ class BlindDateMessage(Base):
     )
 
     __table_args__ = (
-        CheckConstraint("sender_id <> recipient_id", name="chk_blind_msg_no_self"),
+        CheckConstraint("recipient_id IS NULL OR sender_id <> recipient_id", name="chk_blind_msg_no_self"),
     )

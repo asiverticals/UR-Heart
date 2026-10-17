@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,11 +9,14 @@ import 'package:ur_heart/core/app/app_router.dart';
 import 'package:ur_heart/core/app/ur_heart_app.dart';
 import 'package:ur_heart/core/billing/sanctuary_billing_service.dart';
 import 'package:ur_heart/core/network/sanctuary_http_client.dart';
+import 'package:ur_heart/core/services/notification_service.dart';
 import 'package:ur_heart/core/storage/secure_session_storage.dart';
-import 'package:ur_heart/features/auth/presentation/providers/auth_controller.dart';
+import 'package:ur_heart/features/auth/presentation/controllers/auth_controller.dart';
 import 'package:ur_heart/features/blind_date/presentation/controllers/blind_date_controller.dart';
+import 'package:ur_heart/features/feed/domain/models/discovery_profile.dart';
 import 'package:ur_heart/features/growth/presentation/controllers/growth_hub_controller.dart';
 import 'package:ur_heart/features/legal_vault/presentation/controllers/vault_controller.dart';
+import 'package:ur_heart/features/profile/presentation/screens/seeker_profile_detail_screen.dart';
 import 'package:ur_heart/features/resonances/presentation/controllers/resonances_controller.dart';
 import 'package:ur_heart/features/navigation/presentation/screens/sanctuary_navigation_shell.dart';
 import 'package:ur_heart/features/admin/presentation/screens/superadmin_kyc_desk_screen.dart';
@@ -121,6 +125,20 @@ class FakeHttpClient extends Fake implements http.Client {
   }) async {
     if (onDelete != null) return onDelete!(url, headers, body);
     return http.Response('{}', 200);
+  }
+}
+
+class TestNotificationService extends NotificationService {
+  int initializeCalls = 0;
+  String? capturedFcmToken;
+
+  TestNotificationService(super.client);
+
+  @override
+  Future<bool> initialize({String? fcmToken, String? installationId}) async {
+    initializeCalls++;
+    capturedFcmToken = fcmToken;
+    return super.initialize(fcmToken: fcmToken, installationId: installationId);
   }
 }
 
@@ -726,5 +744,204 @@ void main() {
       // Protected route is closed, user is routed to ConsentScreen
       expect(find.text('ConsentScreen'), findsOneWidget);
     });
+
+    test(
+      'ResonancesController.respondToSwipe dispatches action payload and refreshes resonances',
+      () async {
+        final fakeStorage = TestSecureStorage();
+        final sessionStorage = SecureSessionStorage(storage: fakeStorage);
+        final mockClient = FakeHttpClient();
+
+        Map<String, dynamic>? postedBody;
+        mockClient.onPost = (url, headers, body) async {
+          if (url.path == '/api/v1/feed/swipe') {
+            postedBody = jsonDecode(body as String);
+            return http.Response(
+              jsonEncode({
+                'is_match': true,
+                'match_id': '00000000-0000-0000-0000-000000000001',
+                'swipes_remaining': 9,
+              }),
+              200,
+            );
+          }
+          return http.Response('{}', 200);
+        };
+
+        mockClient.onGet = (url, headers) async {
+          return http.Response(jsonEncode({'data': []}), 200);
+        };
+
+        final sanctuaryClient = SanctuaryHttpClient(sessionStorage, client: mockClient);
+        final controller = ResonancesController(sanctuaryClient);
+
+        final result = await controller.respondToSwipe(
+          targetId: '00000000-0000-0000-0000-000000000002',
+          swipeType: 'like',
+        );
+
+        expect(result, isTrue);
+        expect(postedBody, isNotNull);
+        expect(postedBody!['action'], 'like');
+        expect(postedBody!.containsKey('swipe_type'), isFalse);
+        expect(postedBody!['target_id'], '00000000-0000-0000-0000-000000000002');
+        expect(controller.state.error, isNull);
+      },
+    );
+
+    test(
+      'ResonancesController.respondToSwipe captures error in state when backend returns 422 or 403',
+      () async {
+        final fakeStorage = TestSecureStorage();
+        final sessionStorage = SecureSessionStorage(storage: fakeStorage);
+        final mockClient = FakeHttpClient();
+
+        mockClient.onPost = (url, headers, body) async {
+          if (url.path == '/api/v1/feed/swipe') {
+            return http.Response(
+              jsonEncode({
+                'error_code': 'DAILY_SWIPE_QUOTA_EXHAUSTED',
+                'message': "You have met today's rhythm.",
+              }),
+              403,
+            );
+          }
+          return http.Response('{}', 200);
+        };
+
+        mockClient.onGet = (url, headers) async {
+          return http.Response(jsonEncode({'data': []}), 200);
+        };
+
+        final sanctuaryClient = SanctuaryHttpClient(sessionStorage, client: mockClient);
+        final controller = ResonancesController(sanctuaryClient);
+
+        final result = await controller.respondToSwipe(
+          targetId: '00000000-0000-0000-0000-000000000002',
+          swipeType: 'like',
+        );
+
+        expect(result, isFalse);
+        expect(controller.state.error, "You have met today's rhythm.");
+      },
+    );
+
+    testWidgets(
+      'Test 17: /seeker-detail GoRoute extracts userId defensively from query params, DiscoveryProfile, or Map extra',
+      (WidgetTester tester) async {
+        final container = ProviderContainer(
+          overrides: [
+            authStateProvider.overrideWith((ref) => Stream.value(true)),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final router = container.read(goRouterProvider);
+
+        // 17A: Query parameter: /seeker-detail?userId=seeker-param-111
+        router.go('/seeker-detail?userId=seeker-param-111');
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        final detailFinder1 = find.byType(SeekerProfileDetailScreen);
+        expect(detailFinder1, findsOneWidget);
+        final detailWidget1 = tester.widget<SeekerProfileDetailScreen>(detailFinder1);
+        expect(detailWidget1.userId, 'seeker-param-111');
+
+        // 17B: Extra with DiscoveryProfile without query param in URL
+        const testProfile = DiscoveryProfile(
+          id: 'profile-extra-222',
+          fullName: 'Aarav Sharma',
+          age: 28,
+          gender: 'Man',
+          interestedIn: 'Woman',
+          locationName: 'Saket, Ayodhya',
+          bio: 'Mindful spirit',
+          profession: 'Designer',
+          education: 'NID',
+          streakCount: 5,
+          boostPoints: 10,
+          kycStatus: true,
+          isPhotoVeiled: true,
+          photos: [],
+        );
+        router.go('/seeker-detail', extra: testProfile);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        final detailWidget2 = tester.widget<SeekerProfileDetailScreen>(find.byType(SeekerProfileDetailScreen));
+        expect(detailWidget2.userId, 'profile-extra-222');
+        expect(detailWidget2.initialProfile?.fullName, 'Aarav Sharma');
+
+        // 17C: Extra with Map
+        router.go('/seeker-detail', extra: {'userId': 'seeker-map-333'});
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        final detailWidget3 = tester.widget<SeekerProfileDetailScreen>(find.byType(SeekerProfileDetailScreen));
+        expect(detailWidget3.userId, 'seeker-map-333');
+      },
+    );
+
+    testWidgets(
+      'Test 18: UrHeartApp triggers NotificationService.initialize on authenticated session startup',
+      (WidgetTester tester) async {
+        final mockClient = FakeHttpClient();
+        mockClient.onPost = (url, headers, body) async {
+          if (url.path == '/api/v1/notifications/device-token') {
+            return http.Response(jsonEncode({'data': {'registered': true}}), 200);
+          }
+          return http.Response('{}', 200);
+        };
+        final testStorage = TestSecureStorage();
+        final testSession = SecureSessionStorage(storage: testStorage);
+        final testHttpClient = SanctuaryHttpClient(testSession, client: mockClient);
+        final testNotifService = TestNotificationService(testHttpClient);
+
+        final authStreamController = StreamController<bool>.broadcast();
+
+        final container = ProviderContainer(
+          overrides: [
+            authStateProvider.overrideWith((ref) => authStreamController.stream),
+            notificationServiceProvider.overrideWithValue(testNotifService),
+          ],
+        );
+        addTearDown(container.dispose);
+        addTearDown(authStreamController.close);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const UrHeartApp(),
+          ),
+        );
+        await tester.pump();
+
+        // 1. Initial unauthenticated state: no initialize calls
+        authStreamController.add(false);
+        await tester.pump();
+        expect(testNotifService.initializeCalls, 0);
+
+        // 2. Auth transitions to true: initialize is invoked
+        authStreamController.add(true);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(testNotifService.initializeCalls, 1);
+        expect(testNotifService.capturedFcmToken, 'sample_device_fcm_token');
+        expect(testNotifService.isInitialized, isTrue);
+
+        // 3. Consecutive true: suppressed by transition check
+        authStreamController.add(true);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(testNotifService.initializeCalls, 1);
+      },
+    );
   });
 }

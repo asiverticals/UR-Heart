@@ -13,7 +13,6 @@ from backend.app.models.domain import (
     ProcessedAdTransaction,
     InAppPurchase,
     PendingWebEntitlement,
-    WhatsappRevealToken,
     ContactRevealToken,
     PhotoRevealConsent,
     BlindDateQueue,
@@ -161,10 +160,9 @@ async def test_all_remaining_tables_persistence(db_session, make_user):
     await db_session.commit()
 
     # Revelation tokens
-    wa_token = WhatsappRevealToken(match_id=match.id, user1_consent=True)
     contact_token = ContactRevealToken(match_id=match.id, user1_consent=True)
     photo_consent = PhotoRevealConsent(requester_id=u1.id, target_id=u2.id, status="pending")
-    db_session.add_all([wa_token, contact_token, photo_consent])
+    db_session.add_all([contact_token, photo_consent])
     await db_session.commit()
 
     # Blind Date
@@ -347,7 +345,7 @@ async def test_reveal_token_ad_count_bounds(db_session, make_user):
     await db_session.commit()
 
     # Negative ad count
-    invalid_token = WhatsappRevealToken(
+    invalid_token = ContactRevealToken(
         match_id=match.id,
         user1_ads_count=-1,
     )

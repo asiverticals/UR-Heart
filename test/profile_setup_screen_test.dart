@@ -653,5 +653,195 @@ void main() {
       expect(controller.state.voiceSparkUrl, 'https://media.urheart.app/users/test/voice/spark.m4a');
       expect(find.text('Voice Spark Preserved on Edge CDN'), findsOneWidget);
     });
+
+    test('Test 12: ProfileSetupController.initializeForEdit hydrates existing profile data and sets isEditMode to true', () {
+      final fakeStorage = TestSecureStorage();
+      final sessionStorage = SecureSessionStorage(storage: fakeStorage);
+      final fakeHttp = FakeHttpClient();
+      final client = SanctuaryHttpClient(sessionStorage, client: fakeHttp);
+
+      final controller = ProfileSetupController(
+        client: client,
+        rawHttpClient: fakeHttp,
+        storage: sessionStorage,
+      );
+
+      final existingData = {
+        'full_name': 'Meera Krishnan',
+        'bio': 'Conscious architect and tea enthusiast.',
+        'profession': 'Architect',
+        'education': 'CEPT University',
+        'gender': 'Woman',
+        'interested_in': 'Men',
+        'contact_bridge_type': 'whatsapp',
+        'contact_bridge_handle': '+919876543210',
+        'avatar_url': 'https://media.urheart.app/slot_1.webp',
+        'photos': ['https://media.urheart.app/slot_1.webp', 'https://media.urheart.app/slot_2.webp'],
+      };
+
+      controller.initializeForEdit(profileData: existingData);
+
+      expect(controller.state.isEditMode, isTrue);
+      expect(controller.state.fullName, 'Meera Krishnan');
+      expect(controller.state.bio, 'Conscious architect and tea enthusiast.');
+      expect(controller.state.profession, 'Architect');
+      expect(controller.state.avatarUrl, 'https://media.urheart.app/slot_1.webp');
+      expect(controller.state.photoUrls[0], 'https://media.urheart.app/slot_1.webp');
+      expect(controller.state.photoUrls[1], 'https://media.urheart.app/slot_2.webp');
+      expect(controller.state.photoUrls[2], isNull);
+    });
+
+    test('Test 13: submitProfile dispatches PUT /api/v1/profile with ProfileUpdate schema when isEditMode is true', () async {
+      final fakeStorage = TestSecureStorage();
+      final sessionStorage = SecureSessionStorage(storage: fakeStorage);
+      final fakeHttp = FakeHttpClient();
+
+      Uri? capturedPutUri;
+      Map<String, dynamic>? capturedPutBody;
+      bool postCalled = false;
+
+      fakeHttp.onPut = (url, headers, body) async {
+        capturedPutUri = url;
+        if (body != null) {
+          capturedPutBody = jsonDecode(body.toString()) as Map<String, dynamic>;
+        }
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {'id': 'test-uuid', 'full_name': 'Meera K.'},
+            'message': 'Profile updated successfully.',
+          }),
+          200,
+        );
+      };
+
+      fakeHttp.onPost = (url, headers, body) async {
+        if (url.path == '/api/v1/profile/create') {
+          postCalled = true;
+        }
+        return http.Response('{}', 200);
+      };
+
+      final client = SanctuaryHttpClient(sessionStorage, client: fakeHttp);
+      final controller = ProfileSetupController(
+        client: client,
+        rawHttpClient: fakeHttp,
+        storage: sessionStorage,
+      );
+
+      controller.initializeForEdit(profileData: {
+        'full_name': 'Meera Krishnan',
+        'bio': 'Initial bio',
+        'profession': 'Architect',
+        'education': 'CEPT',
+        'photos': ['https://media.urheart.app/slot_1.webp'],
+        'avatar_url': 'https://media.urheart.app/slot_1.webp',
+      });
+
+      // User edits bio and name
+      controller.updateTextFields(
+        fullName: 'Meera K.',
+        bio: 'Updated conscious bio for sacred reflections.',
+      );
+
+      final success = await controller.submitProfile();
+
+      expect(success, isTrue);
+      expect(postCalled, isFalse, reason: 'Must not call POST /api/v1/profile/create when editing');
+      expect(capturedPutUri?.path, '/api/v1/profile');
+      expect(capturedPutBody?['full_name'], 'Meera K.');
+      expect(capturedPutBody?['bio'], 'Updated conscious bio for sacred reflections.');
+      expect(capturedPutBody?['profession'], 'Architect');
+      expect(capturedPutBody?['photos'], ['https://media.urheart.app/slot_1.webp']);
+      expect(capturedPutBody?['avatar_url'], 'https://media.urheart.app/slot_1.webp');
+
+      // Strict extra fields verification: immutable/extra fields must NOT be in PUT body
+      expect(capturedPutBody?.containsKey('dob'), isFalse);
+      expect(capturedPutBody?.containsKey('contact_bridge_raw'), isFalse);
+      expect(capturedPutBody?.containsKey('gender'), isFalse);
+    });
+
+    test('Test 14: checkProfileCompletion detects completed profile from storage and switches to edit mode for PUT', () async {
+      final fakeStorage = TestSecureStorage();
+      final sessionStorage = SecureSessionStorage(storage: fakeStorage);
+      await sessionStorage.writeCustomKey('is_profile_completed', 'true');
+
+      final fakeHttp = FakeHttpClient();
+      Uri? capturedPutUri;
+      fakeHttp.onPut = (url, headers, body) async {
+        capturedPutUri = url;
+        return http.Response('{"success": true}', 200);
+      };
+
+      final client = SanctuaryHttpClient(sessionStorage, client: fakeHttp);
+      final controller = ProfileSetupController(
+        client: client,
+        rawHttpClient: fakeHttp,
+        storage: sessionStorage,
+      );
+
+      final isCompleted = await controller.checkProfileCompletion();
+      expect(isCompleted, isTrue);
+      expect(controller.state.isEditMode, isTrue);
+
+      controller.updateTextFields(
+        fullName: 'Devika Sen',
+        bio: 'Deep connection seeker',
+        contactBridgeHandle: '+919988776655',
+      );
+      fakeHttp.onPost = (url, headers, body) async {
+        if (url.path == '/api/v1/media/presigned-url') {
+          return http.Response(
+            jsonEncode({
+              'upload_url': 'https://r2.cloudflare.com/slot-1',
+              'public_cdn_url': 'https://media.urheart.app/slot_1.webp',
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 200);
+      };
+      await controller.uploadPhotoSlot(1, [1, 2, 3]);
+
+      final success = await controller.submitProfile();
+
+      expect(success, isTrue);
+      expect(capturedPutUri?.path, '/api/v1/profile');
+    });
+
+    test('Test 15: submitProfile handles backend HTTP 400/422 failure gracefully and populates errorMessage without crashing', () async {
+      final fakeStorage = TestSecureStorage();
+      final sessionStorage = SecureSessionStorage(storage: fakeStorage);
+      final fakeHttp = FakeHttpClient();
+
+      fakeHttp.onPut = (url, headers, body) async {
+        return http.Response(
+          jsonEncode({
+            'error_code': 'VALIDATION_ERROR',
+            'message': 'Bio length exceeded maximum character limit.',
+          }),
+          400,
+          headers: {'Content-Type': 'application/json'},
+        );
+      };
+
+      final client = SanctuaryHttpClient(sessionStorage, client: fakeHttp);
+      final controller = ProfileSetupController(
+        client: client,
+        rawHttpClient: fakeHttp,
+        storage: sessionStorage,
+      );
+
+      controller.initializeForEdit(profileData: {
+        'full_name': 'Ananya Das',
+        'photos': ['https://media.urheart.app/slot_1.webp'],
+      });
+
+      final success = await controller.submitProfile();
+
+      expect(success, isFalse);
+      expect(controller.state.isSubmitting, isFalse);
+      expect(controller.state.errorMessage, contains('Bio length exceeded'));
+    });
   });
 }

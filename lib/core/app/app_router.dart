@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/ai_sanctuary/presentation/screens/eva_sanctuary_screen.dart';
-import '../../features/auth/presentation/providers/auth_controller.dart';
+import '../../features/auth/presentation/controllers/auth_controller.dart';
 import '../../features/auth/presentation/screens/age_gate_auth_screen.dart';
 import '../../features/auth/presentation/screens/consent_screen.dart';
 import '../../features/auth/presentation/screens/magic_link_screen.dart';
@@ -20,7 +20,7 @@ import '../../features/profile_setup/presentation/screens/profile_setup_screen.d
 import '../../features/growth/presentation/screens/growth_hub_screen.dart';
 import '../../features/settings/presentation/screens/app_info_screen.dart';
 import '../../features/settings/presentation/screens/sanctuary_settings_screen.dart';
-import '../../features/settings/presentation/screens/superadmin_kyc_desk_screen.dart';
+import '../../features/admin/presentation/screens/superadmin_kyc_desk_screen.dart';
 import '../services/window_security_service.dart';
 import '../storage/secure_session_storage.dart';
 
@@ -139,6 +139,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const GrowthHubScreen(),
       ),
       GoRoute(
+        path: '/store',
+        builder: (context, state) => const GrowthHubScreen(),
+      ),
+      GoRoute(
         path: '/vault',
         builder: (context, state) => VaultLegalScreen(
           initialReportedUserId: state.uri.queryParameters['reported_user_id'],
@@ -165,14 +169,25 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/seeker-detail',
-        builder: (context, state) => SeekerProfileDetailScreen(
-          userId: state.uri.queryParameters['user_id'] ??
-              state.uri.queryParameters['userId'] ??
-              '',
-          initialProfile: state.extra is DiscoveryProfile
+        builder: (context, state) {
+          final profile = state.extra is DiscoveryProfile
               ? state.extra as DiscoveryProfile
-              : null,
-        ),
+              : null;
+          final extraMap = state.extra is Map ? (state.extra as Map) : null;
+          final queryUserId = state.uri.queryParameters['user_id'] ??
+              state.uri.queryParameters['userId'];
+          final resolvedUserId = (queryUserId != null && queryUserId.isNotEmpty)
+              ? queryUserId
+              : (profile?.id ??
+                  extraMap?['user_id']?.toString() ??
+                  extraMap?['userId']?.toString() ??
+                  extraMap?['seeker_id']?.toString() ??
+                  '');
+          return SeekerProfileDetailScreen(
+            userId: resolvedUserId,
+            initialProfile: profile,
+          );
+        },
       ),
       GoRoute(
         path: '/ignored-profiles',

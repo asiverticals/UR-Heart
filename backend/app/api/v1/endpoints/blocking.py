@@ -2,7 +2,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.database import get_db
@@ -75,7 +75,13 @@ async def block_user(
             )
             & (Match.is_active.is_(True))
         )
-        .values(is_active=False, closure_status="blocked")
+        .values(
+            is_active=False,
+            closure_status="unmatched",
+            closure_note="blocked_by_user",
+            closed_by_user_id=current_user.id,
+            closed_at=func.now(),
+        )
     )
     await session.commit()
 

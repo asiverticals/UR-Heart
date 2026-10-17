@@ -209,5 +209,32 @@ void main() {
       expect(mindful.importance, equals('low'));
       expect(mindful.enableVibration, isFalse);
     });
+
+    test('Test 6: initialize marks service as initialized and syncs device token', () async {
+      http.Request? capturedRequest;
+      fakeHttp.handler = (req) async {
+        capturedRequest = req;
+        return http.Response(
+          jsonEncode({
+            'data': {'registered': true},
+            'message': 'Token registered',
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      };
+
+      expect(service.isInitialized, isFalse);
+      final result = await service.initialize(
+        fcmToken: 'fcm_token_device_xyz123',
+        installationId: 'install_uuid_888',
+      );
+
+      expect(result, isTrue);
+      expect(service.isInitialized, isTrue);
+      expect(capturedRequest, isNotNull);
+      expect(capturedRequest!.method, equals('POST'));
+      expect(capturedRequest!.url.path, equals('/api/v1/notifications/device-token'));
+    });
   });
 }

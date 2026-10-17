@@ -27,6 +27,9 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
 
 class NotificationService {
   final SanctuaryHttpClient _client;
+  bool _isInitialized = false;
+
+  bool get isInitialized => _isInitialized;
 
   static const channelKinshipDialogue = NotificationChannelConfig(
     id: 'channel_kinship_dialogue',
@@ -50,6 +53,19 @@ class NotificationService {
   ];
 
   NotificationService(this._client);
+
+  /// Initializes the notification service and synchronizes device FCM token if provided.
+  Future<bool> initialize({String? fcmToken, String? installationId}) async {
+    _isInitialized = true;
+    if (fcmToken != null && fcmToken.isNotEmpty) {
+      try {
+        return await syncDeviceToken(fcmToken, installationId: installationId);
+      } catch (_) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   String get currentPlatform {
     if (kIsWeb) return 'web';

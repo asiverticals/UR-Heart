@@ -13,6 +13,7 @@ from .profile import (
     ProfileCreate,
     ProfileUpdate,
     ProfilePublicResponse,
+    ProfileResponse,
 )
 from .feed import (
     SwipeAction,
@@ -98,6 +99,7 @@ __all__ = [
     "ProfileCreate",
     "ProfileUpdate",
     "ProfilePublicResponse",
+    "ProfileResponse",
     # Feed
     "SwipeAction",
     "SwipeRequest",

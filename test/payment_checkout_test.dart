@@ -38,6 +38,14 @@ class MockSanctuaryHttpClient implements SanctuaryHttpClient {
           'transaction_id': body?['razorpay_payment_id'],
         },
       };
+    } else if (path == '/api/v1/payments/verify-in-app-purchase') {
+      return {
+        'success': true,
+        'data': {
+          'success': true,
+          'transaction_id': body?['purchase_token'],
+        },
+      };
     }
     return {'success': true};
   }
@@ -293,5 +301,120 @@ void main() {
 
     // Verify gentle frosted alert rendered
     expect(find.text('Payment paused. No charges applied.'), findsOneWidget);
+  });
+
+  testWidgets('Test 4: Apple StoreKit billing routes via native in-app billing and verify-in-app-purchase',
+      (tester) async {
+    final paymentService = SanctuaryPaymentService(
+      mockHttpClient,
+      platformOverride: BillingPlatform.appleStoreKit,
+      storeLauncher: (context, product) async {
+        return const NativeStoreCheckoutResult.success(
+          purchaseToken: 'token_apple_test_receipt_123',
+          orderId: 'apple_order_999',
+        );
+      },
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sanctuaryBillingServiceProvider.overrideWithValue(mockBillingService),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: Consumer(
+              builder: (context, ref, child) {
+                return ElevatedButton(
+                  onPressed: () {
+                    paymentService.initiateProductPurchase(
+                      context: context,
+                      product: testProduct,
+                      ref: ref,
+                    );
+                  },
+                  child: const Text('Apple StoreKit Purchase'),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Apple StoreKit Purchase'));
+    await tester.pumpAndSettle();
+
+    // Verify Apple StoreKit bypassed Razorpay entirely
+    expect(mockHttpClient.requestedPaths.contains('/api/v1/payments/create-order'), isFalse);
+    expect(mockHttpClient.requestedPaths.contains('/api/v1/payments/verify-checkout'), isFalse);
+
+    // Verify dispatched to verify-in-app-purchase
+    expect(mockHttpClient.requestedPaths.contains('/api/v1/payments/verify-in-app-purchase'), isTrue);
+    final storeBody = mockHttpClient.requestedBodies
+        .firstWhere((b) => b?['purchase_token'] == 'token_apple_test_receipt_123');
+    expect(storeBody?['order_id'], equals('apple_order_999'));
+    expect(storeBody?['product_identifier'], equals('direct_letter_single'));
+    expect(storeBody?['amount_gross'], equals(29.0));
+
+    // Verify confirmation notification mentions Apple App Store
+    expect(find.text('Entitlement Sealed into Your Vault (Apple App Store)'), findsOneWidget);
+  });
+
+  testWidgets('Test 5: Google Play billing routes via native in-app billing and verify-in-app-purchase',
+      (tester) async {
+    final paymentService = SanctuaryPaymentService(
+      mockHttpClient,
+      platformOverride: BillingPlatform.googlePlay,
+      storeLauncher: (context, product) async {
+        return const NativeStoreCheckoutResult.success(
+          purchaseToken: 'token_google_play_receipt_456',
+          orderId: 'GPA.1234-5678-9012',
+        );
+      },
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sanctuaryBillingServiceProvider.overrideWithValue(mockBillingService),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: Consumer(
+              builder: (context, ref, child) {
+                return ElevatedButton(
+                  onPressed: () {
+                    paymentService.initiateProductPurchase(
+                      context: context,
+                      product: testProduct,
+                      ref: ref,
+                    );
+                  },
+                  child: const Text('Google Play Purchase'),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Google Play Purchase'));
+    await tester.pumpAndSettle();
+
+    // Verify Google Play bypassed Razorpay entirely
+    expect(mockHttpClient.requestedPaths.contains('/api/v1/payments/create-order'), isFalse);
+    expect(mockHttpClient.requestedPaths.contains('/api/v1/payments/verify-checkout'), isFalse);
+
+    // Verify dispatched to verify-in-app-purchase
+    expect(mockHttpClient.requestedPaths.contains('/api/v1/payments/verify-in-app-purchase'), isTrue);
+    final storeBody = mockHttpClient.requestedBodies
+        .firstWhere((b) => b?['purchase_token'] == 'token_google_play_receipt_456');
+    expect(storeBody?['order_id'], equals('GPA.1234-5678-9012'));
+    expect(storeBody?['product_identifier'], equals('direct_letter_single'));
+
+    // Verify confirmation notification mentions Google Play
+    expect(find.text('Entitlement Sealed into Your Vault (Google Play)'), findsOneWidget);
   });
 }

@@ -29,6 +29,7 @@ dependencies:
   flutter_secure_storage: ^9.0.0
   shared_preferences: ^2.2.3
   http: ^1.2.1
+  crypto: ^3.0.3
   web_socket_channel: ^2.4.5
   google_fonts: ^6.2.1
   intl: ^0.19.0

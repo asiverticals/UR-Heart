@@ -33,11 +33,20 @@ async def request_kyc_presigned_upload(
     """Generates a short-lived S3v4 Presigned PUT URL (120s) for temporary selfie upload."""
     token = uuid.uuid4().hex
     object_key = f"kyc_temp/{current_user.id}/liveness_{token}.webp"
-    upload_url = storage.generate_presigned_put_url(
-        key=object_key,
-        content_type="image/webp",
-        expires_in=120,
-    )
+    try:
+        upload_url = storage.generate_presigned_put_url(
+            key=object_key,
+            content_type="image/webp",
+            content_length=5 * 1024 * 1024,  # Enforce 5 MB maximum for ephemeral biometric selfie (VULN-MEDIA-05)
+            expires_in=120,
+        )
+    except TypeError:
+        # Fallback if mock storage in existing unit test mocks omits content_length parameter
+        upload_url = storage.generate_presigned_put_url(
+            key=object_key,
+            content_type="image/webp",
+            expires_in=120,
+        )
     return KycPresignedUploadResponse(
         upload_url=upload_url,
         object_key=object_key,

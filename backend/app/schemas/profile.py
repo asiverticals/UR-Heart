@@ -63,8 +63,8 @@ class ProfileCreate(BaseModel):
         return None
 
 class ProfileUpdate(BaseModel):
-    """Partial profile update schema with strict field restrictions."""
-    model_config = ConfigDict(extra="forbid")
+    """Partial profile update schema with permissive extra-field handling and strict validation."""
+    model_config = ConfigDict(extra="ignore")
 
     full_name: Optional[str] = Field(None, min_length=2, max_length=60)
     bio: Optional[str] = Field(None, max_length=500)
@@ -72,17 +72,31 @@ class ProfileUpdate(BaseModel):
     education: Optional[str] = Field(None, max_length=100)
     photos: Optional[List[str]] = Field(None, min_length=1, max_length=5)
     avatar_url: Optional[str] = Field(None, max_length=500)
+    gender: Optional[GenderType] = None
     interested_in: Optional[InterestedInType] = None
     preferred_age_min: Optional[int] = Field(None, ge=18, le=99)
     preferred_age_max: Optional[int] = Field(None, ge=18, le=100)
     latitude: Optional[Decimal] = Field(None, ge=-90.0, le=90.0)
+    location_lat: Optional[Decimal] = Field(None, ge=-90.0, le=90.0)
     longitude: Optional[Decimal] = Field(None, ge=-180.0, le=180.0)
+    location_lon: Optional[Decimal] = Field(None, ge=-180.0, le=180.0)
+    city: Optional[str] = Field(None, max_length=100)
+    location_name: Optional[str] = Field(None, max_length=100)
+    voice_spark_url: Optional[str] = Field(None, max_length=500)
+    voice_spark_duration: Optional[float] = Field(None, ge=0.0, le=60.0)
+    voice_spark_prompt: Optional[str] = Field(None, max_length=120)
+    prompts: Optional[Any] = None
+    contact_bridge: Optional[str] = Field(None, min_length=3, max_length=64)
+    contact_bridge_type: Optional[ContactBridgeType] = None
+    contact_bridge_raw: Optional[str] = Field(None, min_length=3, max_length=64)
+    contact_bridge_handle: Optional[str] = Field(None, min_length=3, max_length=64)
     is_photo_veiled: Optional[bool] = None
     discreet_mode: Optional[bool] = None
     night_slumber: Optional[bool] = None
     passport_city: Optional[str] = Field(None, max_length=100)
+    dob: Optional[date] = None
 
-    @field_validator("latitude", "longitude")
+    @field_validator("latitude", "longitude", "location_lat", "location_lon")
     @classmethod
     def fuzz_coordinates(cls, v: Optional[Decimal]) -> Optional[Decimal]:
         if v is not None:
@@ -161,3 +175,35 @@ class ProfilePublicResponse(BaseModel):
                 "distance_km": getattr(data, "distance_km", None),
             }
         return data
+
+
+class ProfileResponse(BaseModel):
+    """Seeker's own complete profile response schema."""
+    model_config = ConfigDict(from_attributes=True, extra="ignore")
+
+    id: UUID
+    full_name: str
+    is_profile_completed: bool
+    gender: Optional[str] = None
+    interested_in: Optional[str] = None
+    bio: Optional[str] = ""
+    profession: Optional[str] = ""
+    education: Optional[str] = ""
+    location_name: Optional[str] = None
+    latitude: Optional[Decimal] = None
+    longitude: Optional[Decimal] = None
+    avatar_url: Optional[str] = None
+    photos: List[str] = Field(default_factory=list)
+    voice_spark_url: Optional[str] = None
+    voice_spark_duration: Optional[float] = None
+    voice_spark_prompt: Optional[str] = None
+    contact_bridge_type: Optional[str] = None
+    is_photo_veiled: Optional[bool] = False
+    discreet_mode: Optional[bool] = False
+    night_slumber: Optional[bool] = False
+    passport_city: Optional[str] = None
+    preferred_age_min: Optional[int] = 18
+    preferred_age_max: Optional[int] = 35
+    kyc_status: Optional[bool] = False
+    streak_count: Optional[int] = 0
+

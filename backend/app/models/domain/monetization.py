@@ -24,7 +24,7 @@ class AdRewardLedger(Base):
     )
     ssv_transaction_id: Mapped[str] = mapped_column(String(150), unique=True, nullable=False)
     network: Mapped[str] = mapped_column(String(20), nullable=False)
-    ad_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    ad_type: Mapped[str] = mapped_column(String(50), nullable=False)
     reward_points: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMPTZ,
@@ -34,7 +34,19 @@ class AdRewardLedger(Base):
 
     __table_args__ = (
         CheckConstraint("network IN ('admob', 'admob_client', 'meta', 'unity', 'chartboost', 'liftoff')", name="chk_ad_network"),
-        CheckConstraint("ad_type IN ('quick_reflection', 'deep_resonance', 'sacred_bridge_reveal', 'whatsapp_reveal', 'morning_harvest_unlock', 'daily_streak_boost', 'rewarded_daily_boost', 'rewarded_reveal', 'rewarded_extra_swipes', 'rewarded_streak_freeze', 'rewarded_blind_date_extend')", name="chk_ad_type"),
+        CheckConstraint(
+            "ad_type IN ("
+            "'quick_reflection', 'deep_resonance', 'sacred_bridge_reveal', 'whatsapp_reveal', "
+            "'morning_harvest_unlock', 'daily_streak_boost', 'rewarded_daily_boost', "
+            "'rewarded_reveal', 'rewarded_extra_swipes', 'rewarded_streak_freeze', "
+            "'rewarded_blind_date_extend', 'extra_swipes', "
+            "'daily_harvest_boost', 'instant_reveal_key', 'super_like', 'instant_bridge_pass', "
+            "'streak_freeze', 'rewind_pass', 'compass_teleport', 'ad_free_24h', "
+            "'profile_spotlight', 'incognito_hour', "
+            "'rewind', 'boost', 'see_who_liked', 'travel_mode', 'compliment'"
+            ")",
+            name="chk_ad_type",
+        ),
         CheckConstraint("reward_points > 0", name="chk_positive_reward"),
     )
 
@@ -105,7 +117,10 @@ class InAppPurchase(Base):
     )
 
     __table_args__ = (
-        CheckConstraint("store IN ('google_play', 'web_razorpay_india', 'web_stripe_global')", name="chk_iap_store"),
+        CheckConstraint(
+            "store IN ('google_play', 'apple_storekit', 'revenuecat_in_app', 'web_razorpay_india', 'web_stripe_global', 'stripe_web')",
+            name="chk_iap_store",
+        ),
         CheckConstraint("status IN ('pending', 'completed', 'refunded')", name="chk_iap_status"),
         CheckConstraint("amount_gross >= 0 AND platform_fee >= 0 AND amount_net >= 0", name="chk_iap_nonnegative_amounts"),
     )

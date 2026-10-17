@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +17,7 @@ from ..core.config import settings
 from ..core.exceptions import SanctuaryException
 from ..models.domain.monetization import InAppPurchase, PendingWebEntitlement
 from ..models.domain.user import User
-from .billing_entitlement_service import billing_entitlement_service
+from .billing_entitlement_service import CATALOG_PRODUCTS, billing_entitlement_service
 
 MAX_ORDER_CACHE_SIZE = 1000
 
@@ -45,9 +45,10 @@ class PaymentService:
 
     async def create_razorpay_order(
         self,
-        user: User,
-        product_identifier: str,
+        user: Optional[User] = None,
+        product_identifier: str = "",
         session: Optional[AsyncSession] = None,
+        email: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Creates a server-side Razorpay order with integer subunit (paise) conversion."""
         # Refresh catalog map if needed
@@ -69,7 +70,9 @@ class PaymentService:
 
         amount_inr = float(product["inr_price"])
         amount_paise = int(round(amount_inr * 100))
-        receipt_id = f"rcpt_{user.id}_{int(time.time())}"
+        user_id_str = str(user.id) if user else None
+        target_email = (email or (user.email if user else "") or "").strip().lower()
+        receipt_id = f"rcpt_{user.id}_{int(time.time())}" if user else f"rcpt_web_{uuid.uuid4().hex[:8]}_{int(time.time())}"
         key_id = settings.RAZORPAY_KEY_ID or "rzp_test_urheart"
         key_secret = settings.RAZORPAY_KEY_SECRET or "mock_secret"
 
@@ -78,7 +81,8 @@ class PaymentService:
             "currency": "INR",
             "receipt": receipt_id,
             "notes": {
-                "user_id": str(user.id),
+                "user_id": user_id_str or "",
+                "email": target_email or "",
                 "product_id": product_identifier,
             },
             "payment_capture": 1,
@@ -123,7 +127,8 @@ class PaymentService:
             if len(self.order_cache) >= self.max_cache_size:
                 self.order_cache.popitem(last=False)
         self.order_cache[order_id] = {
-            "user_id": str(user.id),
+            "user_id": user_id_str,
+            "email": target_email or None,
             "product_id": product_identifier,
             "amount_inr": amount_inr,
             "amount_paise": amount_paise,
@@ -161,10 +166,12 @@ class PaymentService:
                     notes = data.get("notes", {})
                     product_id = notes.get("product_id") or notes.get("product_identifier")
                     user_id = notes.get("user_id")
+                    email_note = (notes.get("email") or "").strip().lower() or None
                     amount_paise = data.get("amount", 0)
                     amount_inr = float(amount_paise) / 100.0
                     order_info = {
                         "user_id": user_id,
+                        "email": email_note,
                         "product_id": product_id,
                         "amount_inr": amount_inr,
                         "amount_paise": amount_paise,
@@ -272,6 +279,31 @@ class PaymentService:
                 "product_id": existing.product_identifier,
             }
 
+        # Cross-check PendingWebEntitlement to prevent double-crediting after claim (FIND-PAY-01)
+        pending_res = await session.execute(
+            select(PendingWebEntitlement).where(
+                or_(
+                    PendingWebEntitlement.payment_reference == payment_id,
+                    PendingWebEntitlement.order_id == order_id,
+                    PendingWebEntitlement.order_id == payment_id,
+                )
+            )
+        )
+        pending_match = pending_res.scalar_one_or_none()
+        if pending_match:
+            if pending_match.status == "claimed":
+                return {
+                    "status": "already_processed",
+                    "id": pending_match.id,
+                    "transaction_id": payment_id,
+                    "user_id": str(pending_match.claimed_by_user_id) if pending_match.claimed_by_user_id else str(user_id),
+                    "product_id": pending_match.product_identifier,
+                }
+            elif pending_match.status == "paid_pending_claim":
+                pending_match.status = "claimed"
+                pending_match.claimed_at = datetime.now(timezone.utc)
+                pending_match.claimed_by_user_id = user_id
+
         # 3. Resolve & Lock User for atomic balance updates
         user_stmt = select(User).where(User.id == user_id).with_for_update()
         user_res = await session.execute(user_stmt)
@@ -283,15 +315,34 @@ class PaymentService:
                 status_code=404,
             )
 
-        # 4. Determine amount if missing
-        if amount_gross is None:
-            product = self.catalog_map.get(product_identifier) or LEGACY_CATALOG.get(product_identifier)
-            if product:
-                amount_gross = Decimal(str(product["inr_price"]))
-            else:
-                amount_gross = Decimal("0.00")
+        # 4. Resolve SKU and validate catalog price to reject underpayment (FIND-PAY-03)
+        product = self.catalog_map.get(product_identifier)
+        if not product:
+            active_catalog = billing_entitlement_service.get_active_catalog()
+            self.catalog_map = {item["id"]: item for item in active_catalog}
+            product = self.catalog_map.get(product_identifier)
+        if not product:
+            product = LEGACY_CATALOG.get(product_identifier)
 
-        # 4. Insert InAppPurchase & provision entitlements
+        if not product:
+            raise SanctuaryException(
+                error_code="INVALID_PRODUCT",
+                message=f"Product '{product_identifier}' not found in active catalog.",
+                status_code=400,
+            )
+
+        expected_price = Decimal(str(product["inr_price"]))
+        if amount_gross is not None and amount_gross < expected_price:
+            raise SanctuaryException(
+                error_code="UNDERPAYMENT_DETECTED",
+                message=f"Paid amount ₹{amount_gross} is less than required price ₹{expected_price}.",
+                status_code=400,
+            )
+
+        if amount_gross is None:
+            amount_gross = expected_price
+
+        # 5. Insert InAppPurchase & provision entitlements
         purchase = InAppPurchase(
             user_id=user.id,
             transaction_reference=payment_id,
@@ -343,8 +394,9 @@ class PaymentService:
         if not user.email:
             return []
 
+        clean_user_email = user.email.strip().lower()
         query = select(PendingWebEntitlement).where(
-            PendingWebEntitlement.email == user.email,
+            func.lower(PendingWebEntitlement.email) == clean_user_email,
             PendingWebEntitlement.status == "paid_pending_claim",
         ).with_for_update()
 
@@ -359,11 +411,32 @@ class PaymentService:
             item.claimed_at = now
             item.claimed_by_user_id = user.id
 
-            # Provision entitlements to seeker
+            # FIND-PAY-01: Insert corresponding InAppPurchase record to seal idempotency
+            tx_ref = item.payment_reference or item.order_id
+            existing_iap = await session.execute(
+                select(InAppPurchase).where(InAppPurchase.transaction_reference == tx_ref)
+            )
+            if not existing_iap.scalar_one_or_none():
+                purchase = InAppPurchase(
+                    user_id=user.id,
+                    transaction_reference=tx_ref,
+                    product_identifier=item.product_identifier,
+                    store="web_razorpay_india",
+                    currency=item.currency or "INR",
+                    amount_gross=item.amount_gross or Decimal("0.00"),
+                    platform_fee=Decimal("0.00"),
+                    amount_net=item.amount_gross or Decimal("0.00"),
+                    status="completed",
+                )
+                session.add(purchase)
+
+            # FIND-PAY-05: Provision entitlements with web store bonus (+20%) for web products
+            is_web_bonus = item.product_identifier in CATALOG_PRODUCTS or item.product_identifier not in LEGACY_CATALOG
             await billing_entitlement_service.provision_user_entitlements(
                 user=user,
                 product_identifier=item.product_identifier,
                 session=session,
+                is_web_store=is_web_bonus,
             )
             claimed_items.append({
                 "id": item.id,
@@ -380,9 +453,9 @@ class PaymentService:
 
     async def verify_store_receipt(self, purchase_token: str, expected_product_id: str) -> bool:
         """Validates mobile app store purchase token against Google Play / Apple StoreKit APIs (SEC-07)."""
-        if settings.TESTING or settings.ENVIRONMENT in ("development", "test"):
+        if settings.TESTING:
             return bool(purchase_token and len(purchase_token) >= 16)
-        # In production: must call Google Play Developer API / Apple StoreKit Server API
+        # In production and non-test environments: must call Google Play Developer API / Apple StoreKit Server API
         return False
 
 

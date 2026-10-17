@@ -54,3 +54,7 @@ Thumbs.db
 .flutter-plugins-dependencies
 .packages
 
+# Agents, Scratch & Logs
+.agents/
+scratch/
+*.log

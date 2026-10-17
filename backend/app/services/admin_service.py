@@ -80,16 +80,17 @@ class AdminService:
         reviewer: User,
         background_tasks: Optional[BackgroundTasks] = None,
         notes: Optional[str] = None,
+        ip_address: Optional[str] = "127.0.0.1",
     ) -> AdminKycDecisionResponse:
         """Atomically adjudicates a KYC escalation, updates user status, and purges the ephemeral biometric frame."""
-        # 1. Fetch escalation ticket by ID or user_id with row lock
+        # 1. Fetch escalation ticket by integer ID or user UUID with row lock
         escalation: Optional[AdminKycEscalation] = None
-        try:
-            target_uuid = UUID(escalation_id)
-            stmt_id = select(AdminKycEscalation).where(AdminKycEscalation.id == target_uuid).with_for_update()
+        if str(escalation_id).isdigit():
+            stmt_id = select(AdminKycEscalation).where(AdminKycEscalation.id == int(escalation_id)).with_for_update()
             escalation = (await session.execute(stmt_id)).scalar_one_or_none()
-
-            if not escalation:
+        else:
+            try:
+                target_uuid = UUID(str(escalation_id))
                 stmt_user = (
                     select(AdminKycEscalation)
                     .where(
@@ -100,10 +101,8 @@ class AdminService:
                     .with_for_update()
                 )
                 escalation = (await session.execute(stmt_user)).scalars().first()
-        except (ValueError, TypeError):
-            stmt = select(AdminKycEscalation).where(AdminKycEscalation.id == escalation_id).with_for_update()
-            res = await session.execute(stmt)
-            escalation = res.scalar_one_or_none()
+            except (ValueError, TypeError):
+                pass
 
         if not escalation:
             raise SanctuaryException(
@@ -139,7 +138,25 @@ class AdminService:
         escalation.reviewed_at = datetime.now(timezone.utc)
         escalation.reviewed_by = reviewer.email or str(reviewer.id)
 
-        # 4. DPDP Section 8 mandatory biometric ephemeral asset purge (captured before commit)
+        # 4. Centralized Admin Audit Trail
+        from .admin_audit_service import log_admin_action
+        reviewer_email = reviewer.email or (getattr(reviewer, "id", None) and str(reviewer.id)) or "asiverticals@gmail.com"
+        await log_admin_action(
+            session=session,
+            admin_email=reviewer_email,
+            action=f"kyc_{decision}",
+            target_type="kyc_escalation",
+            target_id=str(escalation.id),
+            details={
+                "user_id": str(user.id),
+                "decision": decision,
+                "notes": notes or "",
+                "score": float(escalation.groq_match_score) if escalation.groq_match_score is not None else None,
+            },
+            ip_address=ip_address or "127.0.0.1",
+        )
+
+        # 5. DPDP Section 8 mandatory biometric ephemeral asset purge (captured before commit)
         raw_ephemeral_key = escalation.selfie_storage_url
         ephemeral_key: Optional[str] = raw_ephemeral_key
         if ephemeral_key and "://" in ephemeral_key:

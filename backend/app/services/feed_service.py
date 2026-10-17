@@ -13,8 +13,21 @@ from ..models.domain.match_and_chat import Match, Swipe
 from ..models.domain.revelation import ContactRevealToken
 from ..models.domain.user import User
 
+def _mask_to_blurred_derivative(url: Optional[str]) -> Optional[str]:
+    """Transforms raw CDN photo URL into blurred thumbnail derivative to prevent client-side media leakage."""
+    if not url:
+        return None
+    if "_blurred." in url:
+        return url
+    if "." in url:
+        base, ext = url.rsplit(".", 1)
+        return f"{base}_blurred.{ext}"
+    return f"{url}_blurred.webp"
+
 class FeedService:
     """Core discovery deck and swipe interaction domain service."""
+
+    mask_to_blurred_derivative = staticmethod(_mask_to_blurred_derivative)
 
     @staticmethod
     def fuzz_coordinates(lat: float, lon: float) -> Tuple[float, float]:
@@ -139,9 +152,21 @@ class FeedService:
                 "boost_points": candidate.boost_points,
                 "kyc_status": candidate.kyc_status,
                 "is_photo_veiled": True,  # Modesty veil enforced by default
-                "photos": candidate.photos,
-                "avatar_url": candidate.avatar_url,
-                "voice_spark_url": candidate.voice_spark_url,
+                "photos": [
+                    _mask_to_blurred_derivative(p)
+                    for p in (candidate.photos or [])
+                    if p
+                ],
+                "avatar_url": (
+                    _mask_to_blurred_derivative(candidate.avatar_url)
+                    if candidate.avatar_url
+                    else None
+                ),
+                "voice_spark_url": (
+                    f"/api/v1/media/voice/{candidate.id}/spark.m4a"
+                    if candidate.voice_spark_url
+                    else None
+                ),
                 "voice_spark_prompt": candidate.voice_spark_prompt,
                 "voice_spark_duration": candidate.voice_spark_duration,
                 "is_voice_verified": candidate.is_voice_verified,

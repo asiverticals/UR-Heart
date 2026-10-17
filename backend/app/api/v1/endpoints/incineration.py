@@ -1,8 +1,11 @@
+import time
 from typing import Optional
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ....core.exceptions import SanctuaryException
 from ....core.limiter import limiter
+from ....core.security import decode_access_token
 from ....models.domain.user import User
 from ....schemas.base_response import SanctuaryResponse
 from ....schemas.legal import (
@@ -27,15 +30,50 @@ router = APIRouter()
 )
 async def incinerate_account(
     payload: AccountIncinerateRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     incineration_service: AccountIncinerationService = Depends(get_account_incineration_service),
 ) -> SanctuaryResponse[dict]:
     """Irrevocably incinerates the authenticated seeker's persona, moments, and data.
 
-    Enforces mandatory confirmation phrase 'PERMANENTLY INCINERATE' and triggers
-    Cloudflare R2 cascade deletion and relational row purge under DPDP Act 2023 Section 12.
+    Enforces mandatory confirmation phrase 'PERMANENTLY INCINERATE', step-up re-authentication
+    (fresh token or reauth header), and triggers Cloudflare R2 cascade deletion and relational
+    row purge under DPDP Act 2023 Section 12.
     """
+    # VULN-DPDP-02: Step-up re-authentication invariant
+    # Require fresh token (< 300s since issuance) or step-up re-auth header
+    auth_header = request.headers.get("authorization", "")
+    raw_token = auth_header.split(" ", 1)[1].strip() if " " in auth_header else ""
+    token_payload = decode_access_token(raw_token) if raw_token else None
+
+    is_fresh = False
+    if token_payload:
+        iat = token_payload.get("iat")
+        if iat is not None and (time.time() - iat) <= 300 and token_payload.get("fresh") is not False:
+            is_fresh = True
+
+    if not is_fresh:
+        # Check step-up header (X-Reauth-Token or X-Step-Up-Token or X-Reauth-Password)
+        reauth_token = (
+            request.headers.get("x-reauth-token")
+            or request.headers.get("x-step-up-token")
+            or request.headers.get("x-reauth-password")
+        )
+        if reauth_token:
+            reauth_payload = decode_access_token(reauth_token)
+            if reauth_payload and str(reauth_payload.get("sub")) == str(current_user.id):
+                reauth_iat = reauth_payload.get("iat")
+                if reauth_iat and (time.time() - reauth_iat) <= 300:
+                    is_fresh = True
+
+        if not is_fresh:
+            raise SanctuaryException(
+                error_code="STEP_UP_REAUTH_REQUIRED",
+                message="Step-up re-authentication required before account incineration. Please confirm credentials.",
+                status_code=403,
+            )
+
     result = await incineration_service.execute_account_incineration(
         current_user.id,
         db,

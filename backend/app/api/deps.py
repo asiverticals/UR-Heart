@@ -1,7 +1,7 @@
 import hmac
 from typing import Optional
 from uuid import UUID
-from fastapi import Depends, Header, Security, status
+from fastapi import Depends, Header, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 import jwt
@@ -77,8 +77,8 @@ async def get_superadmin(
         try:
             user = await get_current_user(credentials=credentials, db=db)
             admin_email = (settings.ADMIN_SUPERUSER_EMAIL or settings.SUPERADMIN_EMAIL or "").strip().lower()
-            if user.role == "superadmin" or (
-                admin_email and user.email and user.email.strip().lower() == admin_email
+            if user.role == "superadmin" and (
+                not admin_email or (user.email and user.email.strip().lower() == admin_email)
             ):
                 return True
         except SanctuaryException:
@@ -92,20 +92,29 @@ async def get_superadmin(
 
 
 async def get_current_superadmin(
+    request: Request,
     current_user: User = Depends(get_current_user),
 ) -> User:
-    """RBAC Superadmin guard: asserts current_user.email matches configured admin superuser email or current_user.role == 'superadmin'.
-    
+    """RBAC Superadmin guard: asserts current_user.role == 'superadmin' and matches configured admin superuser email,
+    or requires valid X-Superadmin-Key secret header.
+
     Unauthorized requests raise HTTP 403 Forbidden with error_code 'FORBIDDEN_ADMIN_ACCESS'.
     """
+    admin_key = request.headers.get("X-Superadmin-Key", "").strip()
+    expected_secret = (settings.SUPERADMIN_SECRET_KEY or "").strip()
+    has_valid_secret = bool(admin_key and expected_secret and hmac.compare_digest(admin_key, expected_secret))
+
     admin_superuser_email = (settings.ADMIN_SUPERUSER_EMAIL or settings.SUPERADMIN_EMAIL or "").strip().lower()
+    is_canonical_email = bool(
+        admin_superuser_email
+        and current_user.email
+        and current_user.email.strip().lower() == admin_superuser_email
+    )
+
+    # Superadmin role requires canonical admin email, or valid secret key
     is_superadmin = (
-        current_user.role == "superadmin"
-        or (
-            admin_superuser_email
-            and current_user.email
-            and current_user.email.strip().lower() == admin_superuser_email
-        )
+        (current_user.role == "superadmin" and (is_canonical_email or has_valid_secret))
+        or (has_valid_secret and is_canonical_email)
     )
     if not is_superadmin:
         raise SanctuaryException(

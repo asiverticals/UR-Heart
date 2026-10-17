@@ -99,7 +99,7 @@ async def unlock_photo_with_perk(
     db: AsyncSession = Depends(get_db),
     service: PhotoRevealService = Depends(get_photo_reveal_service),
 ):
-    """Redeems an INR 39 single profile unlock micro-perk to unmask photos instantly."""
+    """Dispatches an expedited bilateral reveal invitation via micro-perk redemption; requires target consent to unmask veil (BNS 2023 § 77)."""
     result = await service.unlock_photo_with_perk(
         user_id=current_user.id,
         target_id=payload.target_id,
@@ -173,7 +173,11 @@ async def get_seeker_public_profile(
         "is_photo_veiled": not is_revealed,
         "photos": (target.photos or []) if is_revealed else [],
         "avatar_url": target.avatar_url if is_revealed else None,
-        "voice_spark_url": target.voice_spark_url,
+        "voice_spark_url": (
+            f"/api/v1/media/voice/{target.id}/spark.m4a"
+            if target.voice_spark_url
+            else None
+        ),
         "voice_spark_prompt": target.voice_spark_prompt,
         "voice_spark_duration": target.voice_spark_duration or Decimal("7.0"),
         "is_voice_verified": target.is_voice_verified,

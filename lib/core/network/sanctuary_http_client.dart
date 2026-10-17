@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import '../storage/secure_session_storage.dart';
+import 'ssl_pinning_client.dart';
 
 final sanctuaryHttpClientProvider = Provider<SanctuaryHttpClient>((ref) {
   final storage = ref.watch(secureSessionStorageProvider);
@@ -22,7 +23,13 @@ class SanctuaryHttpClient {
     this._storage, {
     http.Client? client,
     this.requestTimeout = defaultTimeout,
-  }) : _client = client ?? http.Client();
+    Set<String>? pinnedFingerprints,
+    bool enablePinning = false,
+  })  : _client = client ??
+            createSecuredHttpClient(
+              pinnedSha256Fingerprints: pinnedFingerprints,
+              enablePinning: enablePinning,
+            );
 
   Future<Map<String, dynamic>> get(String path) async {
     return _sendRequest('GET', path);
@@ -49,6 +56,8 @@ class SanctuaryHttpClient {
     return _sendRequest('PUT', path, body: body);
   }
 
+
+
   Future<bool> _performTokenRefresh() async {
     final refreshToken = await _storage.readRefreshToken();
     if (refreshToken == null || refreshToken.isEmpty) return false;
@@ -59,8 +68,13 @@ class SanctuaryHttpClient {
       );
       final newAccessToken = refreshed['data']?['access_token'] ??
           refreshed['access_token'];
+      final newRefreshToken = refreshed['data']?['refresh_token'] ??
+          refreshed['refresh_token'];
       if (newAccessToken is String && newAccessToken.isNotEmpty) {
         await _storage.saveAuthToken(newAccessToken);
+        if (newRefreshToken is String && newRefreshToken.isNotEmpty) {
+          await _storage.saveRefreshToken(newRefreshToken);
+        }
         return true;
       }
     } on SanctuaryClientException catch (e) {
@@ -200,3 +214,18 @@ class SanctuaryClientException implements Exception {
   @override
   String toString() => '[$errorCode ($statusCode)]: $message';
 }
+
+/// Authentication and session lifecycle extensions on SanctuaryHttpClient.
+extension SanctuaryHttpClientAuthExtensions on SanctuaryHttpClient {
+  /// Revokes server session and wipes local Keystore session vault.
+  Future<void> logout() async {
+    try {
+      await post('/api/v1/auth/logout');
+    } catch (_) {
+      // Fail-safe: always clear local session even if offline or server returns error
+    } finally {
+      await _storage.clearSession();
+    }
+  }
+}
+

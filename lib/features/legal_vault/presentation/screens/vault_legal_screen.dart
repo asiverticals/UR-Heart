@@ -749,6 +749,7 @@ class _VaultLegalScreenState extends ConsumerState<VaultLegalScreen> {
                         DropdownMenuItem(value: 'impersonation', child: Text('Impersonation')),
                         DropdownMenuItem(value: 'underage', child: Text('Underage Account')),
                         DropdownMenuItem(value: 'offplatform_leak', child: Text('Off-platform Leak')),
+                        DropdownMenuItem(value: 'ncii', child: Text('NCII (24hr Emergency Takedown)')),
                       ],
                       onChanged: (val) {
                         if (val != null) {

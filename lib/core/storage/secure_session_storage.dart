@@ -126,6 +126,11 @@ class SecureSessionStorage {
   Future<String?> readRefreshToken() =>
       _synchronized(() => _storage.read(key: keyRefreshToken));
 
+  /// Saves updated long-lived refresh token serialized with pending writes.
+  Future<void> saveRefreshToken(String token) => _synchronized(() async {
+    await _storage.write(key: keyRefreshToken, value: token);
+  });
+
   /// Reads authenticated seeker UUID serialized with pending writes.
   Future<String?> readUserId() =>
       _synchronized(() => _storage.read(key: keyUserId));

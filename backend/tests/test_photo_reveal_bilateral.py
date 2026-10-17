@@ -187,7 +187,7 @@ async def test_photo_reveal_validations(db_session, make_user):
 
 @pytest.mark.asyncio
 async def test_photo_reveal_micro_perk_unlock(db_session, make_user):
-    """Test 8: Micro-perk purchase unlocks photo veil with status='purchased_unlock'."""
+    """Test 8: Micro-perk purchase creates expedited reveal invitation with veil remaining masked until target accepts (BNS 2023 § 77)."""
     service = PhotoRevealService()
 
     user_a = make_user(full_name="Seeker A", is_profile_completed=True)
@@ -195,15 +195,25 @@ async def test_photo_reveal_micro_perk_unlock(db_session, make_user):
     db_session.add_all([user_a, user_b])
     await db_session.commit()
 
-    # User A unlocks User B with ₹39 micro-perk
+    # User A dispatches expedited invitation for User B with ₹39 micro-perk
     res = await service.unlock_photo_with_perk(user_a.id, user_b.id, db_session)
-    assert res["status"] == "purchased_unlock"
-    assert res["is_revealed"] is True
+    assert res["status"] == "pending"
+    assert res["is_revealed"] is False
 
-    # Status check confirms unmasking
+    # Status check confirms modesty veil remains masked (no voyeurism bypass)
     status = await service.get_photo_reveal_status(user_a.id, user_b.id, db_session)
-    assert status["status"] == "purchased_unlock"
-    assert status["is_revealed"] is True
+    assert status["status"] == "pending"
+    assert status["is_revealed"] is False
+
+    # User B explicitly consents to unmask veil
+    accept_res = await service.respond_to_photo_reveal(user_b.id, user_a.id, accept=True, session=db_session)
+    assert accept_res["status"] == "accepted"
+    assert accept_res["is_revealed"] is True
+
+    # Now photos are mutually unmasked
+    status_accepted = await service.get_photo_reveal_status(user_a.id, user_b.id, db_session)
+    assert status_accepted["status"] == "accepted"
+    assert status_accepted["is_revealed"] is True
 
 @pytest.mark.asyncio
 async def test_photo_reveal_api_endpoints(db_session, make_user):
@@ -284,8 +294,8 @@ async def test_photo_reveal_api_endpoints(db_session, make_user):
                 json={"target_id": str(user_c.id), "purchase_reference": tx_token},
             )
             assert perk_res.status_code == 200
-            assert perk_res.json()["data"]["status"] == "purchased_unlock"
-            assert perk_res.json()["data"]["is_revealed"] is True
+            assert perk_res.json()["data"]["status"] == "pending"
+            assert perk_res.json()["data"]["is_revealed"] is False
 
             # 7. Test purchase reference replay prevention (reject reused reference)
             perk_replay_res = await client.post(

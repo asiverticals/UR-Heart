@@ -21,6 +21,28 @@ class RazorpayOrderCreate(BaseModel):
                 raise ValueError("USD billing is disabled under condition C2 until global milestone activation")
         return v
 
+class WebRazorpayOrderCreate(BaseModel):
+    """Payment order creation request for Web Store visitors."""
+    model_config = ConfigDict(extra="forbid")
+
+    product_identifier: str = Field(..., max_length=60, description="SKU identifier from product catalog")
+    email: EmailStr = Field(..., description="Seeker registered email or guest checkout email")
+    seeker_uuid: Optional[str] = Field(None, description="Optional seeker account UUID")
+    currency: Literal["INR", "USD"] = "INR"
+
+    @field_validator("currency")
+    @classmethod
+    def validate_usd_allowed(cls, v: str) -> str:
+        if v == "USD":
+            try:
+                from ..core.config import settings
+            except (ImportError, ValueError):
+                from backend.app.core.config import settings
+            if not getattr(settings, "ENABLE_GLOBAL_USD_BILLING", False):
+                raise ValueError("USD billing is disabled under condition C2 until global milestone activation")
+        return v
+
+
 class RazorpayOrderResponse(BaseModel):
     """Server-side generated Razorpay order response payload."""
     order_id: str = Field(..., description="Authoritative Razorpay order ID (e.g., order_...)")

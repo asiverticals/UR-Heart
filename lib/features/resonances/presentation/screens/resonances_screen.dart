@@ -181,45 +181,60 @@ class _ResonancesScreenState extends ConsumerState<ResonancesScreen>
             padding: const EdgeInsets.all(14),
             child: Row(
               children: [
-                CircleAvatar(
-                  radius: 28,
-                  backgroundColor: tokens.glowTerracotta.withValues(alpha: 0.2),
-                  backgroundImage: (peerAvatar != null && peerAvatar.isNotEmpty)
-                      ? NetworkImage(peerAvatar)
-                      : null,
-                  child: (peerAvatar == null || peerAvatar.isEmpty)
-                      ? Text(
-                          peerName.isNotEmpty ? peerName[0].toUpperCase() : 'S',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: tokens.textPrimary,
-                          ),
-                        )
-                      : null,
-                ),
-                const SizedBox(width: 14),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        peerName,
-                        style: TextStyle(
-                          fontFamily: SanctuaryTypography.sansFont,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 16,
-                          color: tokens.textPrimary,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () {
+                      if (peerId.isNotEmpty) {
+                        context.push('/seeker-detail?userId=$peerId');
+                      }
+                    },
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 28,
+                          backgroundColor: tokens.glowTerracotta.withValues(alpha: 0.2),
+                          backgroundImage: (peerAvatar != null && peerAvatar.isNotEmpty)
+                              ? NetworkImage(peerAvatar)
+                              : null,
+                          child: (peerAvatar == null || peerAvatar.isEmpty)
+                              ? Text(
+                                  peerName.isNotEmpty ? peerName[0].toUpperCase() : 'S',
+                                  style: TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                    color: tokens.textPrimary,
+                                  ),
+                                )
+                              : null,
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Mutual resonance established',
-                        style: SanctuaryTypography.caption(tokens.textSecondary),
-                      ),
-                    ],
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                peerName,
+                                style: TextStyle(
+                                  fontFamily: SanctuaryTypography.sansFont,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 16,
+                                  color: tokens.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Mutual resonance established',
+                                style: SanctuaryTypography.caption(tokens.textSecondary),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
+                const SizedBox(width: 8),
                 ElevatedButton(
                   onPressed: () {
                     context.push('/chat-dialogue?matchId=$matchId&peerId=$peerId');
@@ -301,80 +316,93 @@ class _ResonancesScreenState extends ConsumerState<ResonancesScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 24,
-                      backgroundColor: tokens.glowPine.withValues(alpha: 0.25),
-                      child: Icon(Icons.lock_outline_rounded, size: 20, color: tokens.glowPine),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    if (seekerId.isNotEmpty) {
+                      context.push('/seeker-detail?userId=$seekerId');
+                    }
+                  },
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          Row(
-                            children: [
-                              Text(
-                                fullName,
-                                style: TextStyle(
-                                  fontFamily: SanctuaryTypography.sansFont,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 16,
-                                  color: tokens.textPrimary,
-                                ),
-                              ),
-                              if (isSuperlike) ...[
-                                const SizedBox(width: 6),
-                                Icon(Icons.star_rounded, size: 18, color: tokens.glowGold),
-                              ],
-                            ],
+                          CircleAvatar(
+                            radius: 24,
+                            backgroundColor: tokens.glowPine.withValues(alpha: 0.25),
+                            child: Icon(Icons.lock_outline_rounded, size: 20, color: tokens.glowPine),
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            isSuperlike ? 'Sent a Super-Resonance' : 'Liked your persona',
-                            style: SanctuaryTypography.caption(tokens.textSecondary),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      fullName,
+                                      style: TextStyle(
+                                        fontFamily: SanctuaryTypography.sansFont,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 16,
+                                        color: tokens.textPrimary,
+                                      ),
+                                    ),
+                                    if (isSuperlike) ...[
+                                      const SizedBox(width: 6),
+                                      Icon(Icons.star_rounded, size: 18, color: tokens.glowGold),
+                                    ],
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  isSuperlike ? 'Sent a Super-Resonance' : 'Liked your persona',
+                                  style: SanctuaryTypography.caption(tokens.textSecondary),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                  ],
-                ),
-                if (bio.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    bio,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: SanctuaryTypography.bodyStandard(tokens.textSecondary),
-                  ),
-                ],
-                if (directLetter != null && directLetter.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: tokens.glowTerracotta.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: tokens.glowTerracotta.withValues(alpha: 0.25),
-                      ),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(Icons.mail_outline_rounded, size: 16, color: tokens.glowTerracotta),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            '"$directLetter"',
-                            style: SanctuaryTypography.quote(tokens.textPrimary, isDark: isDark),
+                      if (bio.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          bio,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: SanctuaryTypography.bodyStandard(tokens.textSecondary),
+                        ),
+                      ],
+                      if (directLetter != null && directLetter.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: tokens.glowTerracotta.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: tokens.glowTerracotta.withValues(alpha: 0.25),
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.mail_outline_rounded, size: 16, color: tokens.glowTerracotta),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  '"$directLetter"',
+                                  style: SanctuaryTypography.quote(tokens.textPrimary, isDark: isDark),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
-                    ),
+                    ],
                   ),
-                ],
+                ),
                 const SizedBox(height: 14),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,

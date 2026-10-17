@@ -67,6 +67,12 @@ class AccountIncinerationService:
                 message="Seeker identity does not exist in sanctuary.",
                 status_code=404,
             )
+        if user.deleted_at is not None:
+            raise SanctuaryException(
+                error_code="ACCOUNT_SUSPENDED_OR_BANNED",
+                message="Account is currently suspended or banned. Incineration cannot be triggered while under administrative/statutory sanction.",
+                status_code=403,
+            )
 
         # Step 1: Cascade database deletion across child relations
         # Push notification tokens
@@ -110,16 +116,19 @@ class AccountIncinerationService:
         await self.deactivate_mutual_matches(user_id, session)
 
         # Step 2: Redact or scrub statutory audit tables (DPDP Section 12 legal obligation exceptions)
-        # Grievance dossiers: Decouple seeker IDs and redact personal narrative text
+        # Grievance dossiers: Decouple seeker IDs while PRESERVING evidence_text for statutory audit / law enforcement (DPDP Section 12(3) & IT Rules 3(2)(b))
         await session.execute(
             update(GrievanceDossier)
             .where(GrievanceDossier.reporter_id == user_id)
-            .values(reporter_id=None, evidence_text="[INCINERATED_PURSUANT_TO_DPDP_SECTION_12]")
+            .values(reporter_id=None)
         )
         await session.execute(
             update(GrievanceDossier)
             .where(GrievanceDossier.reported_user_id == user_id)
-            .values(reported_user_id=None, evidence_text="[INCINERATED_PURSUANT_TO_DPDP_SECTION_12]")
+            .values(
+                reported_user_id=None,
+                statutory_notes=func.coalesce(GrievanceDossier.statutory_notes, "") + " [RESPONDENT_INCINERATED]",
+            )
         )
 
         # Financial transactions: Retain payment IDs and gross amounts for 7-year statutory tax compliance, decouple user_id
@@ -175,6 +184,11 @@ class AccountIncinerationService:
         # Anti-enumeration invariant: Always return True even if user does not exist
         if not user:
             logger.info(f"[WEB-INCINERATION] Web deletion requested for unregistered identifier: {ident_hash}")
+            return True
+
+        # Prevent banned / suspended accounts from triggering deletion magic links
+        if user.deleted_at is not None:
+            logger.warning(f"[WEB-INCINERATION] Web deletion rejected for suspended/banned identifier: {ident_hash}")
             return True
 
         # Per-email rate throttling: Prevent spamming link requests within 60 seconds
@@ -245,6 +259,14 @@ class AccountIncinerationService:
                 error_code="INVALID_OR_EXPIRED_TOKEN",
                 message="The statutory deletion link is invalid or has expired.",
                 status_code=400,
+            )
+
+        user = await session.get(User, token_record.user_id)
+        if user and user.deleted_at is not None:
+            raise SanctuaryException(
+                error_code="ACCOUNT_SUSPENDED_OR_BANNED",
+                message="Account is currently suspended or banned. Please contact the Grievance Officer.",
+                status_code=403,
             )
 
         user_id = token_record.user_id

@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/network/sanctuary_http_client.dart';
 
+const Object _unset = Object();
+
 @immutable
 class ResonancesState {
   final List<dynamic> incomingLikes;
@@ -20,13 +22,13 @@ class ResonancesState {
     List<dynamic>? incomingLikes,
     List<dynamic>? mutualMatches,
     bool? isLoading,
-    String? error,
+    Object? error = _unset,
   }) {
     return ResonancesState(
       incomingLikes: incomingLikes ?? this.incomingLikes,
       mutualMatches: mutualMatches ?? this.mutualMatches,
       isLoading: isLoading ?? this.isLoading,
-      error: error,
+      error: identical(error, _unset) ? this.error : error as String?,
     );
   }
 }
@@ -37,6 +39,11 @@ class ResonancesController extends StateNotifier<ResonancesState> {
 
   ResonancesController(this._client) : super(const ResonancesState()) {
     fetchResonances();
+  }
+
+  void clearError() {
+    if (!mounted) return;
+    state = state.copyWith(error: null);
   }
 
   Future<void> fetchResonances() async {
@@ -58,7 +65,12 @@ class ResonancesController extends StateNotifier<ResonancesState> {
     }
   }
 
-  Future<bool> respondToSwipe({required String targetId, required String swipeType}) async {
+  Future<bool> respondToSwipe({
+    required String targetId,
+    String? swipeType,
+    String? action,
+  }) async {
+    final resolvedAction = action ?? swipeType ?? 'like';
     if (_pendingTargets.contains(targetId)) {
       return false;
     }
@@ -66,16 +78,28 @@ class ResonancesController extends StateNotifier<ResonancesState> {
     try {
       await _client.post('/api/v1/feed/swipe', body: {
         'target_id': targetId,
-        'swipe_type': swipeType,
+        'action': resolvedAction,
       });
-    } catch (_) {
+    } on SanctuaryClientException catch (e) {
+      if (mounted) {
+        state = state.copyWith(error: e.message);
+      }
+      return false;
+    } catch (e) {
+      if (mounted) {
+        state = state.copyWith(error: e.toString());
+      }
       return false;
     } finally {
       _pendingTargets.remove(targetId);
     }
     try {
       await fetchResonances();
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) {
+        state = state.copyWith(error: e.toString());
+      }
+    }
     return true;
   }
 }

@@ -40,6 +40,8 @@ class LegalVaultService:
         user: User,
         payload: DataNomineeRequest,
         session: AsyncSession,
+        client_ip: Optional[str] = None,
+        installation_uuid: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Registers or idempotently updates seeker's Digital Nominee (DPDP Section 14)."""
         name = payload.nominee_name.strip()
@@ -74,6 +76,19 @@ class LegalVaultService:
                 verification_status="designated",
             )
             session.add(nominee)
+
+        # VULN-DPDP-06: Create immutable statutory audit log in consent_audit_logs
+        resolved_ip = client_ip or "127.0.0.1"
+        ip_hash = hashlib.sha256(resolved_ip.encode("utf-8")).hexdigest()
+        inst_uuid = installation_uuid or getattr(user, "last_installation_uuid", None) or "system_client"
+
+        audit_entry = ConsentAuditLog(
+            user_id=user.id,
+            consent_purpose_id="dpdp_section14_nominee_designation",
+            ip_hash=ip_hash,
+            installation_uuid=inst_uuid,
+        )
+        session.add(audit_entry)
 
         await session.commit()
         await session.refresh(nominee)
@@ -121,6 +136,16 @@ class LegalVaultService:
                 message="Seeker cannot file statutory grievance against themselves.",
                 status_code=400,
             )
+
+        # VULN-DPDP-05: Handle non-existent target user gracefully (404 instead of 500)
+        if payload.reported_user_id:
+            target = await session.get(User, payload.reported_user_id)
+            if not target:
+                raise SanctuaryException(
+                    error_code="TARGET_USER_NOT_FOUND",
+                    message="The reported seeker account does not exist.",
+                    status_code=404,
+                )
 
         dossier_ref = self.generate_dossier_reference()
         ack_time = datetime.now(timezone.utc)

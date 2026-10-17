@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/network/sanctuary_http_client.dart';
 import '../../../../core/services/device_fingerprint_service.dart';
 import '../../../../core/storage/secure_session_storage.dart';
@@ -128,6 +129,7 @@ class AuthController extends StateNotifier<AuthState> {
                   role: newRole,
                 );
               }
+              _syncStatutoryConsentLog();
               return;
             }
           } on SanctuaryClientException catch (e) {
@@ -152,6 +154,7 @@ class AuthController extends StateNotifier<AuthState> {
           role: role,
         );
       }
+      _syncStatutoryConsentLog();
     } catch (_) {}
   }
 
@@ -346,6 +349,7 @@ class AuthController extends StateNotifier<AuthState> {
           );
         }
         state = state.copyWith(isLoading: false);
+        _syncStatutoryConsentLog();
         return true;
       }
       state = state.copyWith(
@@ -397,6 +401,7 @@ class AuthController extends StateNotifier<AuthState> {
           );
         }
         state = state.copyWith(isLoading: false);
+        _syncStatutoryConsentLog();
         return true;
       }
       state = state.copyWith(
@@ -410,6 +415,46 @@ class AuthController extends StateNotifier<AuthState> {
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: e.toString());
       return false;
+    }
+  }
+
+  /// Synchronizes local affirmative consent record with server-side audit table under DPDP Act 2023 § 6(7).
+  Future<void> _syncStatutoryConsentLog() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final consentJson = prefs.getString('dpdp_statutory_consent_record_v1');
+      final alreadySynced = prefs.getBool('dpdp_consent_synced_to_server') ?? false;
+
+      if (consentJson != null && consentJson.isNotEmpty && !alreadySynced) {
+        final fingerprint = await _fingerprintService.getOrCreateFingerprint();
+        await _client.post(
+          '/api/v1/legal/consent-record',
+          body: {
+            'consent_purpose_id': 'dpdp_v1_onboarding',
+            'installation_uuid': fingerprint,
+          },
+        );
+        await prefs.setBool('dpdp_consent_synced_to_server', true);
+      }
+    } catch (_) {
+      // Non-blocking background sync: will retry on subsequent session restores if needed
+    }
+  }
+
+  /// Revokes all server-side sessions and resets local authentication state.
+  Future<void> signOut() async {
+    _sessionEpoch++;
+    state = state.copyWith(isLoading: true);
+    try {
+      await _client.post('/api/v1/auth/logout');
+    } catch (_) {
+      // Fail-safe: proceed with local teardown
+    } finally {
+      await _storage.clearSession();
+      if (_ref != null) {
+        _ref.read(currentUserProvider.notifier).state = null;
+      }
+      state = const AuthState();
     }
   }
 }

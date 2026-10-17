@@ -8,7 +8,6 @@ from .monetization import (
     PendingWebEntitlement,
 )
 from .revelation import (
-    WhatsappRevealToken,
     ContactRevealToken,
     PhotoRevealConsent,
 )
@@ -36,7 +35,7 @@ from .admin_telemetry import (
 __all__ = [
     "Base",
     "TimestampMixin",
-    # 25 Domain Models
+    # 24 Domain Models
     "User",
     "Swipe",
     "Match",
@@ -45,7 +44,6 @@ __all__ = [
     "ProcessedAdTransaction",
     "InAppPurchase",
     "PendingWebEntitlement",
-    "WhatsappRevealToken",
     "ContactRevealToken",
     "PhotoRevealConsent",
     "BlindDateQueue",

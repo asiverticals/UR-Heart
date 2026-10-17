@@ -8,12 +8,13 @@ from uuid import UUID
 
 logger = logging.getLogger("SanctuaryChatWS")
 
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy import select, or_, and_, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.config import settings
 from ....core.database import AsyncSessionLocal, get_db
+from ....core.limiter import limiter
 from ....core.ws_ticket_store import ws_ticket_store, get_ws_ticket_store, WsTicketStore
 from ....core.ws_manager import connection_manager, get_connection_manager, ConnectionManager
 from ....models.domain.user import User
@@ -68,7 +69,16 @@ async def _verify_active_match(
     user_a: UUID,
     user_b: UUID,
 ) -> Optional[Match]:
-    """Verifies that an active dialogue match exists between the two participants."""
+    """Verifies that an active dialogue match exists between active participants."""
+    # VULN-WS-01: Verify both participants exist and have active accounts (deleted_at is None)
+    users_stmt = select(User.id).where(
+        User.id.in_([user_a, user_b]),
+        User.deleted_at.is_(None),
+    )
+    active_user_ids = (await session.execute(users_stmt)).scalars().all()
+    if len(active_user_ids) < 2:
+        return None
+
     stmt = select(Match).where(
         Match.id == match_id,
         Match.is_active == True,
@@ -85,7 +95,9 @@ async def _verify_active_match(
     response_model=SanctuaryResponse[WsTicketResponse],
     summary="Issue single-use ephemeral WebSocket relay handshake ticket",
 )
+@limiter.limit("20/minute")
 async def issue_ws_ticket(
+    request: Request,
     current_user: User = Depends(get_current_user),
     ticket_store: WsTicketStore = Depends(get_ws_ticket_store),
 ) -> SanctuaryResponse[WsTicketResponse]:
@@ -119,6 +131,14 @@ async def _handle_chat_websocket(
     if user_id is None:
         await websocket.close(code=4401, reason="Invalid or expired ticket")
         return
+
+    # VULN-WS-01: Reject WebSocket handshake for soft-deleted / banned users
+    async for session in get_db_session(websocket):
+        user_record = await session.get(User, user_id)
+        if not user_record or user_record.deleted_at is not None:
+            await websocket.close(code=4403, reason="Account suspended or inactive")
+            return
+        break
 
     # 2. Accept & Register Connection
     await manager.connect(user_id, websocket)
@@ -188,6 +208,17 @@ async def _handle_chat_websocket(
                         match_uuid = UUID(str(match_id_str))
 
                         async for session in get_db_session(websocket):
+                            # VULN-WS-01: Disconnect and reject frames if seeker was banned mid-session
+                            sender_record = await session.get(User, user_id)
+                            if not sender_record or sender_record.deleted_at is not None:
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "error_code": "SEEKER_BANNED",
+                                    "message": "Account has been suspended or banned.",
+                                })
+                                await websocket.close(code=4403, reason="Account suspended or banned")
+                                break
+
                             match_record = await _verify_active_match(
                                 session, match_uuid, user_id, recipient_uuid
                             )
@@ -219,6 +250,16 @@ async def _handle_chat_websocket(
                 encrypted_text = data.get("encrypted_text")
                 client_id = data.get("client_id")
 
+                # VULN-WS-03: Validate client_id string format and maximum length (64 chars)
+                if client_id is not None:
+                    if not isinstance(client_id, str) or len(client_id) > 64:
+                        await websocket.send_json({
+                            "type": "error",
+                            "error_code": "INVALID_CLIENT_ID",
+                            "message": "client_id must be a string up to 64 characters.",
+                        })
+                        continue
+
                 # Protocol-level text-only validation
                 if not isinstance(encrypted_text, str) or not (1 <= len(encrypted_text) <= 4096):
                     await websocket.send_json({
@@ -249,6 +290,17 @@ async def _handle_chat_websocket(
 
                 # Database Match Authorization & Persistence
                 async for session in get_db_session(websocket):
+                    # VULN-WS-01: Disconnect and reject frames if seeker was banned mid-session
+                    sender_record = await session.get(User, user_id)
+                    if not sender_record or sender_record.deleted_at is not None:
+                        await websocket.send_json({
+                            "type": "error",
+                            "error_code": "SEEKER_BANNED",
+                            "message": "Account has been suspended or banned.",
+                        })
+                        await websocket.close(code=4403, reason="Account suspended or banned")
+                        break
+
                     match_record = await _verify_active_match(
                         session, match_uuid, user_id, recipient_uuid
                     )
@@ -328,6 +380,17 @@ async def _handle_chat_websocket(
                         recipient_uuid = UUID(str(recipient_id_str))
 
                         async for session in get_db_session(websocket):
+                            # VULN-WS-01: Disconnect and reject frames if seeker was banned mid-session
+                            sender_record = await session.get(User, user_id)
+                            if not sender_record or sender_record.deleted_at is not None:
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "error_code": "SEEKER_BANNED",
+                                    "message": "Account has been suspended or banned.",
+                                })
+                                await websocket.close(code=4403, reason="Account suspended or banned")
+                                break
+
                             match_record = await _verify_active_match(
                                 session, match_uuid, user_id, recipient_uuid
                             )

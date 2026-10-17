@@ -173,6 +173,18 @@ class PhotoRevealService:
         session: AsyncSession,
     ) -> Dict[str, Any]:
         """Responds to a pending photo reveal request from another seeker."""
+        # Bilateral block check: blocked seekers cannot respond to reveal requests (VULN-MEDIA-04)
+        blocked_stmt = select(BlockedUser).where(
+            ((BlockedUser.blocker_id == requester_id) & (BlockedUser.blocked_id == target_id))
+            | ((BlockedUser.blocker_id == target_id) & (BlockedUser.blocked_id == requester_id))
+        )
+        if (await session.execute(blocked_stmt)).scalar_one_or_none():
+            raise SanctuaryException(
+                error_code="SEEKER_BLOCKED",
+                message="Cannot respond to photo reveal for a blocked seeker.",
+                status_code=403,
+            )
+
         stmt = select(PhotoRevealConsent).where(
             PhotoRevealConsent.requester_id == requester_id,
             PhotoRevealConsent.target_id == target_id,
@@ -242,22 +254,7 @@ class PhotoRevealService:
         if (await session.execute(consent_stmt)).scalars().first():
             return {"target_id": user_b, "status": "accepted", "is_revealed": True}
 
-        # 2. Micro-perk single profile unlock bypass (user_a purchased unlock for user_b)
-        iap_stmt = select(InAppPurchase).where(
-            InAppPurchase.user_id == user_a,
-            InAppPurchase.status == "completed",
-            (
-                (InAppPurchase.product_identifier == f"profile_unlock_single:{user_b}")
-                | (
-                    (InAppPurchase.product_identifier == "profile_unlock_single")
-                    & InAppPurchase.transaction_reference.contains(str(user_b))
-                )
-            ),
-        )
-        if (await session.execute(iap_stmt)).scalars().first():
-            return {"target_id": user_b, "status": "purchased_unlock", "is_revealed": True}
-
-        # 3. Pending request initiated by user_a
+        # 2. Pending request initiated by user_a (BNS § 77: modesty veil remains strictly masked)
         pending_stmt = select(PhotoRevealConsent).where(
             PhotoRevealConsent.requester_id == user_a,
             PhotoRevealConsent.target_id == user_b,
@@ -266,7 +263,7 @@ class PhotoRevealService:
         if (await session.execute(pending_stmt)).scalars().first():
             return {"target_id": user_b, "status": "pending", "is_revealed": False}
 
-        # 4. Default veiled state
+        # 3. Default veiled state
         return {"target_id": user_b, "status": "veiled", "is_revealed": False}
 
     async def unlock_photo_with_perk(
@@ -355,14 +352,99 @@ class PhotoRevealService:
             status="completed",
         )
         session.add(iap)
+
+        # BNS 2023 § 77 & § 45: Paid micro-perk converts into an Expedited Bilateral Reveal Invitation.
+        # It NEVER strips the modesty veil unilaterally without the target seeker's reciprocal consent.
+        # 1. Check if target seeker already has an active or pending request toward user_id
+        reciprocal_stmt = select(PhotoRevealConsent).where(
+            PhotoRevealConsent.requester_id == target_id,
+            PhotoRevealConsent.target_id == user_id,
+        )
+        reciprocal = (await session.execute(reciprocal_stmt)).scalar_one_or_none()
+
+        if reciprocal and reciprocal.status in ("accepted", "pending"):
+            # Target already expressed affirmative consent: unmask veil mutually
+            reciprocal.status = "accepted"
+            reciprocal.updated_at = datetime.now(timezone.utc)
+
+            own_stmt = select(PhotoRevealConsent).where(
+                PhotoRevealConsent.requester_id == user_id,
+                PhotoRevealConsent.target_id == target_id,
+            )
+            own = (await session.execute(own_stmt)).scalar_one_or_none()
+            if own:
+                own.status = "accepted"
+                own.updated_at = datetime.now(timezone.utc)
+            else:
+                session.add(
+                    PhotoRevealConsent(
+                        requester_id=user_id,
+                        target_id=target_id,
+                        status="accepted",
+                    )
+                )
+            await session.commit()
+            return {
+                "target_id": target_id,
+                "status": "accepted",
+                "is_revealed": True,
+                "message": "Mutual resonance unmasked the veil.",
+            }
+
+        # 2. No target consent yet: record or escalate own request to pending
+        own_stmt = select(PhotoRevealConsent).where(
+            PhotoRevealConsent.requester_id == user_id,
+            PhotoRevealConsent.target_id == target_id,
+        )
+        own = (await session.execute(own_stmt)).scalar_one_or_none()
+        if own:
+            own.status = "pending"
+            own.updated_at = datetime.now(timezone.utc)
+        else:
+            session.add(
+                PhotoRevealConsent(
+                    requester_id=user_id,
+                    target_id=target_id,
+                    status="pending",
+                )
+            )
+
         await session.commit()
 
         return {
             "target_id": target_id,
-            "status": "purchased_unlock",
-            "is_revealed": True,
-            "message": "Veil unmasked via Sacred Micro-Perk.",
+            "status": "pending",
+            "is_revealed": False,
+            "message": "Expedited bilateral reveal invitation dispatched. Modesty veil remains protected until target seeker accepts.",
         }
+
+    async def get_secure_photo_urls(
+        self,
+        viewer_id: uuid.UUID,
+        target_id: uuid.UUID,
+        target_photos: Optional[list],
+        storage_service: Any,
+        session: AsyncSession,
+    ) -> list:
+        """Returns signed/presigned photo URLs for revealed photos, or empty list if veiled (VULN-MEDIA-03)."""
+        status_res = await self.get_photo_reveal_status(viewer_id, target_id, session)
+        if not status_res.get("is_revealed") or not target_photos:
+            return []
+
+        secure_urls = []
+        for p in target_photos:
+            if not p:
+                continue
+            if "users/" in p:
+                key = "users/" + p.split("users/", 1)[1]
+                try:
+                    presigned = storage_service.generate_presigned_get_url(key, expires_in=3600)
+                    secure_urls.append(presigned)
+                except Exception:
+                    secure_urls.append(p)
+            else:
+                secure_urls.append(p)
+        return secure_urls
 
 photo_reveal_service = PhotoRevealService()
 

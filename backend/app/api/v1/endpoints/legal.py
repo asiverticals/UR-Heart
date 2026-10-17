@@ -1,9 +1,12 @@
+from datetime import datetime, timezone, timedelta
 import hashlib
 from typing import List, Optional
+import uuid
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....models.domain.legal import ConsentAuditLog
+from ....core.exceptions import SanctuaryException
+from ....models.domain.legal import ConsentAuditLog, GrievanceDossier
 from ....models.domain.user import User
 from ....schemas.base_response import SanctuaryResponse
 from ....schemas.legal import (
@@ -14,9 +17,15 @@ from ....schemas.legal import (
     GrievanceResponse,
     GrievanceDossierItem,
     DataExportResponse,
+    EmergencyTakedownRequest,
+    EmergencyTakedownResponse,
 )
 from ....services.legal_vault_service import legal_vault_service
 from ...deps import get_current_user, get_db
+try:
+    from ....core.limiter import limiter
+except (ImportError, ValueError):
+    from backend.app.core.limiter import limiter
 
 router = APIRouter()
 
@@ -24,11 +33,15 @@ router = APIRouter()
 @router.post("/nominee", response_model=SanctuaryResponse[NomineeResponse])
 async def register_nominee(
     payload: DataNomineeRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> SanctuaryResponse[NomineeResponse]:
     """Registers or updates digital nominee under DPDP Act 2023 Section 14."""
-    data = await legal_vault_service.register_or_update_nominee(current_user, payload, db)
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    data = await legal_vault_service.register_or_update_nominee(
+        current_user, payload, db, client_ip=client_ip
+    )
     return SanctuaryResponse(
         data=NomineeResponse(**data),
         message="Digital nominee designated under DPDP Act 2023 Section 14.",
@@ -62,6 +75,64 @@ async def submit_grievance(
     )
 
 
+@router.post("/emergency-takedown", response_model=SanctuaryResponse[EmergencyTakedownResponse])
+@limiter.limit("10/minute")
+async def emergency_takedown(
+    request: Request,
+    payload: EmergencyTakedownRequest,
+    db: AsyncSession = Depends(get_db),
+) -> SanctuaryResponse[EmergencyTakedownResponse]:
+    """Public emergency 24-hour takedown portal under IT Rules 2021 Rule 3(2)(b) for NCII and explicit content."""
+    # VULN-DPDP-05: Handle non-existent target user gracefully (404 instead of 500)
+    if payload.reported_user_id:
+        target = await db.get(User, payload.reported_user_id)
+        if not target:
+            raise SanctuaryException(
+                error_code="TARGET_USER_NOT_FOUND",
+                message="The reported seeker account does not exist.",
+                status_code=404,
+            )
+
+    now = datetime.now(timezone.utc)
+    takedown_deadline = now + timedelta(hours=24)
+    dossier_ref = f"NCII-EMG-{now.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"
+
+    narrative = (
+        f"EMERGENCY 24-HR TAKEDOWN COMPLAINT [IT Rules 2021 Rule 3(2)(b)]\n"
+        f"Complainant: {payload.complainant_name} <{payload.complainant_email}>\n"
+        f"Phone: {payload.complainant_phone or 'Not Provided'}\n"
+        f"Reported Handle/Name: {payload.reported_handle_or_name or 'N/A'}\n"
+        f"Offending Media URL: {payload.evidence_media_url or 'N/A'}\n"
+        f"Statement: {payload.evidence_text.strip()}"
+    )
+
+    dossier = GrievanceDossier(
+        dossier_reference_id=dossier_ref,
+        reporter_id=None,
+        reported_user_id=payload.reported_user_id,
+        violation_category=payload.violation_category,
+        evidence_text=payload.evidence_text.strip(),
+        statutory_notes=narrative,
+        status="acknowledged",
+        acknowledgment_sent_at=now,
+        statutory_resolution_due_at=takedown_deadline,
+        sla_deadline_at=takedown_deadline,
+    )
+    db.add(dossier)
+    await db.commit()
+
+    return SanctuaryResponse(
+        data=EmergencyTakedownResponse(
+            dossier_reference_id=dossier_ref,
+            status="acknowledged",
+            statutory_sla_hours=24,
+            emergency_takedown_due_at=takedown_deadline.isoformat(),
+            message="Emergency 24-hour takedown complaint registered. Takedown review initiated immediately pursuant to Rule 3(2)(b).",
+        ),
+        message="Emergency statutory complaint acknowledged. Action required within 24 hours.",
+    )
+
+
 @router.get("/grievances", response_model=SanctuaryResponse[List[GrievanceDossierItem]])
 async def list_grievances(
     current_user: User = Depends(get_current_user),
@@ -77,7 +148,9 @@ async def list_grievances(
 
 
 @router.post("/data-export", response_model=SanctuaryResponse[DataExportResponse])
+@limiter.limit("2/minute")
 async def export_personal_data(
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> SanctuaryResponse[DataExportResponse]:
@@ -160,11 +233,13 @@ async def get_grievance_officer() -> SanctuaryResponse[dict]:
     """Returns designated Resident Grievance Officer details under IT Rules 2021 Rule 3(2)(a)."""
     return SanctuaryResponse(
         data={
+            "name": "Anubhav Singh",
             "title": "Resident Grievance Officer & Legal Counsel",
             "entity": "ASI Verticals Private Limited",
-            "email": "grievance@urheart.app",
-            "redressal_desk_email": "legal@urheart.app",
-            "telephone": "+91-120-4567890",
+            "physical_address": "Chambers of Resident Legal Counsel, Ayodhya District Court, Ayodhya, Uttar Pradesh 224001, India",
+            "email": "asiverticals@gmail.com",
+            "redressal_desk_email": "asiverticals@gmail.com",
+            "telephone": None,
             "hours": "Mon-Fri 10:00 AM - 6:00 PM IST",
             "emergency_takedown_sla_hours": 24,
             "general_resolution_sla_days": 15,
@@ -176,17 +251,19 @@ async def get_grievance_officer() -> SanctuaryResponse[dict]:
 
 @router.get("/refund-policy", response_model=SanctuaryResponse[dict])
 async def get_refund_policy() -> SanctuaryResponse[dict]:
-    """Returns Refund, Cancellation & Micro-Transaction Policy under Consumer Protection Rules 2020."""
+    """Returns Strict No-Refund & Digital Consumable Finality Policy under Consumer Protection Rules 2020."""
     return SanctuaryResponse(
         data={
-            "document": "Refund, Cancellation & Micro-Transaction Policy",
+            "document": "Strict No-Refund & Digital Consumable Finality Policy",
             "entity": "ASI Verticals Private Limited",
             "effective_date": "2026-10-15",
-            "processing_window_hours": 48,
-            "settlement_window_days": "5-7 business days",
-            "billing_email": "billing@urheart.app",
+            "policy_type": "no_refund",
+            "terms": "All purchases of digital consumables, sparks, roses, revelation passes, and sanctuary micro-transactions are final, immediate, and non-refundable once credited to seeker vault.",
+            "billing_email": "asiverticals@gmail.com",
+            "support_email": "asiverticals@gmail.com",
             "url": "https://urheart.app/refund",
         },
-        message="Refund and cancellation policy retrieved.",
+        message="Strict no-refund policy retrieved.",
     )
+
 

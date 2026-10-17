@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_typography.dart';
 import '../../../../core/theme/glass_tokens.dart';
 import '../../../../core/theme/theme_controller.dart';
@@ -548,9 +549,14 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       photoWidget = _buildPlaceholderPhoto(tokens);
     }
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24.0),
-      child: SanctuaryGlassContainer(
+    return GestureDetector(
+      onTap: () => context.push(
+        '/seeker-detail?userId=${profile.id}',
+        extra: profile,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24.0),
+        child: SanctuaryGlassContainer(
         borderRadius: 24.0,
         blurSigma: 12.0,
         padding: EdgeInsets.zero,
@@ -725,6 +731,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
           ],
         ),
       ),
+    ),
     );
   }
 

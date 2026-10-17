@@ -178,3 +178,8 @@ def validate_production_secrets() -> None:
             raise RuntimeError("Fatal: SUPERADMIN_SECRET_KEY is required and must not be a placeholder in production.")
         if not settings.CONTACT_BRIDGE_SECRET_KEY:
             raise RuntimeError("Fatal: CONTACT_BRIDGE_SECRET_KEY is required in production.")
+        if not settings.RAZORPAY_KEY_SECRET or settings.RAZORPAY_KEY_SECRET.startswith("placeholder_"):
+            raise RuntimeError("Fatal: RAZORPAY_KEY_SECRET is required and must not be a placeholder in production.")
+        if not settings.RAZORPAY_WEBHOOK_SECRET or settings.RAZORPAY_WEBHOOK_SECRET.startswith("placeholder_"):
+            raise RuntimeError("Fatal: RAZORPAY_WEBHOOK_SECRET is required and must not be a placeholder in production.")
+

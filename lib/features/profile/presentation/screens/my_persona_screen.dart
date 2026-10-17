@@ -8,6 +8,7 @@ import '../../../../core/theme/glass_tokens.dart';
 import '../../../../core/theme/theme_controller.dart';
 import '../../../../core/theme/widgets/sanctuary_glass_container.dart';
 import '../../../auth/presentation/controllers/auth_controller.dart';
+import '../../../profile_setup/presentation/controllers/profile_setup_controller.dart';
 
 /// Screen 4: MyPersonaScreen (Main Bottom Nav Tab Index 4)
 /// Seeker's own profile dashboard, stats, and primary gateway to Settings and Legal Vault.
@@ -394,7 +395,13 @@ class _MyPersonaScreenState extends ConsumerState<MyPersonaScreen> {
                     SanctuaryGlassContainer(
                       borderRadius: 16,
                       padding: const EdgeInsets.all(16),
-                      onTap: () => context.push('/profile-setup'),
+                      onTap: () async {
+                        ref.read(profileSetupControllerProvider.notifier).initializeForEdit(profileData: _profile);
+                        await context.push('/profile-setup');
+                        if (mounted) {
+                          _loadProfile();
+                        }
+                      },
                       child: Row(
                         children: [
                           Container(

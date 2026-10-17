@@ -1,6 +1,6 @@
 import asyncio
 from collections import defaultdict
-from typing import Dict, Set
+from typing import Dict, Set, Optional
 from uuid import UUID
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -62,23 +62,33 @@ class ConnectionManager:
 
         return delivered
 
-    async def broadcast_presence(self, user_id: UUID, status: str) -> None:
-        """Emits a presence notification frame to all connected active seekers."""
+    async def broadcast_presence(
+        self,
+        user_id: UUID,
+        status: str,
+        peer_ids: Optional[Set[UUID]] = None,
+    ) -> None:
+        """Emits a presence notification frame strictly scoped to mutual active match peers.
+
+        Prevents global broadcast PII leakage across unmatched strangers and adversaries.
+        """
+        if not peer_ids:
+            return
+
         payload = {
             "type": "presence",
             "user_id": str(user_id),
             "status": status,
         }
-        # In UR-Heart, presence is broadcast intentionally or scoped to active match peers
         async with self._lock:
-            all_sockets = [
+            target_sockets = [
                 ws
-                for uid, sockets in self._active_connections.items()
-                if uid != user_id
-                for ws in sockets
+                for uid in peer_ids
+                if uid in self._active_connections and uid != user_id
+                for ws in self._active_connections[uid]
             ]
 
-        for ws in all_sockets:
+        for ws in target_sockets:
             try:
                 await ws.send_json(payload)
             except Exception:

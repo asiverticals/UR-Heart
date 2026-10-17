@@ -24,6 +24,10 @@ from .email_service import email_service
 
 logger = logging.getLogger(__name__)
 
+_consumed_refresh_tokens: set[str] = set()
+_refresh_skew_counter: int = 0
+
+
 class AuthService:
     """Authentication and identity domain service managing seeker onboarding and sessions."""
 
@@ -59,25 +63,31 @@ class AuthService:
         return record
 
     @staticmethod
-    def generate_age_intent_token(dob: date, device_fingerprint: str) -> str:
-        """Generates HMAC-SHA256 signed age intent token to prove age verification was performed."""
-        token_payload = f"{device_fingerprint}:{dob.isoformat()}"
+    def generate_age_intent_token(dob: date, device_fingerprint: str, ttl_seconds: int = 900) -> str:
+        """Generates HMAC-SHA256 signed age intent token with timestamp to enforce 15-minute TTL."""
+        timestamp = int(datetime.now(timezone.utc).timestamp())
+        token_payload = f"{device_fingerprint}:{dob.isoformat()}:{timestamp}"
         sig = hmac.new(settings.SECRET_KEY.encode(), token_payload.encode(), hashlib.sha256).hexdigest()
         return f"{token_payload}:{sig}"
 
     @staticmethod
-    def verify_age_intent_token(token: str, device_fingerprint: str) -> Optional[date]:
-        """Validates cryptographic age intent token and extracts verified date of birth."""
+    def verify_age_intent_token(token: str, device_fingerprint: str, max_age_seconds: int = 900) -> Optional[date]:
+        """Validates cryptographic age intent token, checking device binding and 15-minute TTL expiry."""
         try:
             if not token or not device_fingerprint:
                 return None
             parts = token.strip().split(":")
-            if len(parts) != 3:
+            if len(parts) != 4:
                 return None
-            fp, dob_str, sig = parts
+            fp, dob_str, ts_str, sig = parts
             if fp != device_fingerprint:
                 return None
-            expected_payload = f"{fp}:{dob_str}"
+            ts = int(ts_str)
+            now = int(datetime.now(timezone.utc).timestamp())
+            # Enforce 15-minute maximum lifetime and reject future timestamps (> 60s clock skew)
+            if (now - ts) > max_age_seconds or ts > (now + 60):
+                return None
+            expected_payload = f"{fp}:{dob_str}:{ts_str}"
             expected_sig = hmac.new(settings.SECRET_KEY.encode(), expected_payload.encode(), hashlib.sha256).hexdigest()
             if not hmac.compare_digest(sig, expected_sig):
                 return None
@@ -426,6 +436,15 @@ class AuthService:
                 status_code=404,
             )
 
+        # Revocation Tracking on Refresh (SEC: VULN-AUTH-03)
+        token_hash = hashlib.sha256(refresh_token.strip().encode()).hexdigest()
+        if token_hash in _consumed_refresh_tokens:
+            raise SanctuaryException(
+                error_code="INVALID_REFRESH_TOKEN",
+                message="Refresh token has already been consumed and revoked.",
+                status_code=401,
+            )
+
         # Validate token version revocation (SEC-02, CodeRabbit Issue #1)
         token_version = payload.get("token_version", 1)
         if isinstance(token_version, bool) or not isinstance(token_version, int) or token_version < getattr(user, "token_version", 1):
@@ -435,9 +454,17 @@ class AuthService:
                 status_code=401,
             )
 
+        _consumed_refresh_tokens.add(token_hash)
+        global _refresh_skew_counter
+        _refresh_skew_counter = (_refresh_skew_counter + 1) % 3600
+
         user_tv = getattr(user, "token_version", 1)
         new_access_token = create_access_token(user.id, token_version=user_tv)
-        new_refresh_token = create_refresh_token(user.id, token_version=user_tv)
+        new_refresh_token = create_refresh_token(
+            user.id,
+            expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS, seconds=_refresh_skew_counter),
+            token_version=user_tv,
+        )
 
         return TokenResponse(
             access_token=new_access_token,
@@ -448,5 +475,14 @@ class AuthService:
             is_profile_completed=user.is_profile_completed,
             role=user.role,
         )
+
+    @staticmethod
+    async def revoke_user_sessions(user: User, session: AsyncSession) -> int:
+        """Increments token_version for the user in database, invalidating all issued access and refresh tokens."""
+        user.token_version = getattr(user, "token_version", 1) + 1
+        session.add(user)
+        await session.commit()
+        return user.token_version
+
 
 auth_service = AuthService()

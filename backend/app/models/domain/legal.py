@@ -119,11 +119,7 @@ class ConsentAuditLog(Base):
 class GrievanceDossier(Base):
     __tablename__ = "grievance_dossiers"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UniversalUUID,
-        primary_key=True,
-        default=uuid.uuid4,
-    )
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     dossier_reference_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     reporter_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UniversalUUID,
@@ -151,20 +147,22 @@ class GrievanceDossier(Base):
     )
     statutory_resolution_due_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMPTZ, nullable=True)
     sla_deadline_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMPTZ, nullable=True)
+    resolution_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMPTZ,
         server_default=func.now(),
         nullable=False,
     )
+    actioned_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMPTZ, nullable=True)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMPTZ, nullable=True)
 
     __table_args__ = (
         CheckConstraint(
-            "violation_category IN ('harassment', 'explicit_content', 'impersonation', 'underage', 'offplatform_leak', 'underage_suspicion', 'inappropriate_content', 'fraud', 'other')",
+            "violation_category IN ('harassment', 'explicit_content', 'impersonation', 'underage', 'offplatform_leak', 'ncii', 'underage_suspicion', 'inappropriate_content', 'fraud', 'other')",
             name="chk_grievance_category",
         ),
         CheckConstraint(
-            "status IN ('received', 'investigating', 'resolved', 'dismissed', 'acknowledged', 'under_review', 'actioned')",
+            "status IN ('under_review', 'actioned', 'dismissed', 'acknowledged', 'investigating', 'closed')",
             name="chk_grievance_status",
         ),
         CheckConstraint(

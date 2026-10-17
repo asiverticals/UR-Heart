@@ -8,6 +8,7 @@ ViolationCategory = Literal[
     "impersonation",
     "underage",
     "offplatform_leak",
+    "ncii",
 ]
 
 class GrievanceSubmitRequest(BaseModel):
@@ -17,6 +18,32 @@ class GrievanceSubmitRequest(BaseModel):
     reported_user_id: UUID = Field(..., description="Target seeker profile reported")
     violation_category: ViolationCategory = Field(..., description="Category of breach")
     evidence_text: str = Field(default="", max_length=500, description="Contextual report evidence narrative")
+
+class EmergencyTakedownRequest(BaseModel):
+    """Public emergency 24-hour takedown request under IT Rules 2021 Rule 3(2)(b) for NCII/explicit violations."""
+    model_config = ConfigDict(extra="forbid")
+
+    complainant_name: str = Field(..., min_length=2, max_length=100, description="Full name of reporting individual or legal counsel")
+    complainant_email: EmailStr = Field(..., description="Official notification email for statutory updates")
+    complainant_phone: Optional[str] = Field(None, max_length=20, description="Contact phone for urgent verification")
+    reported_user_id: Optional[UUID] = Field(None, description="Reported seeker UUID if known")
+    reported_handle_or_name: Optional[str] = Field(None, max_length=100, description="Profile name or handle if UUID unknown")
+    violation_category: Literal["ncii", "explicit_content", "impersonation", "underage"] = Field(
+        "ncii", description="Emergency violation category subject to 24-hour statutory takedown SLA"
+    )
+    evidence_text: str = Field(..., min_length=10, max_length=1000, description="Detailed statement explaining violation")
+    evidence_media_url: Optional[str] = Field(None, max_length=500, description="Link to offending media location or CDN asset")
+    good_faith_affirmation: bool = Field(..., description="Affirmation that statements are true under penalty of law")
+
+class EmergencyTakedownResponse(BaseModel):
+    """Statutory emergency takedown acknowledgment under IT Rules 2021 Rule 3(2)(b)."""
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    dossier_reference_id: str
+    status: str
+    statutory_sla_hours: int = 24
+    emergency_takedown_due_at: str
+    message: str
 
 class GrievanceResponse(BaseModel):
     """Statutory acknowledgment ticket with IT Rules strict SLA timeline."""

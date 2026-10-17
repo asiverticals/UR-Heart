@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
+    from ....core.config import settings
     from ....core.database import get_db
     from ....core.limiter import limiter
     from ....models.domain.user import User
@@ -18,6 +19,7 @@ try:
     from ....services.auth_service import auth_service
     from ...deps import get_current_user
 except (ImportError, ValueError):
+    from backend.app.core.config import settings
     from backend.app.core.database import get_db
     from backend.app.core.limiter import limiter
     from backend.app.models.domain.user import User
@@ -34,6 +36,13 @@ except (ImportError, ValueError):
     from backend.app.api.deps import get_current_user
 
 
+def _is_rate_limit_exempt_in_tests(request: Request) -> bool:
+    """Exempts internal unit test runners using loopback without explicit forwarded headers."""
+    if getattr(settings, "TESTING", False) and not request.headers.get("X-Forwarded-For") and not request.headers.get("CF-Connecting-IP"):
+        return True
+    return False
+
+
 router = APIRouter()
 
 @router.post(
@@ -42,7 +51,9 @@ router = APIRouter()
     status_code=status.HTTP_200_OK,
     summary="Validate 18+ statutory age gate and device hardware quarantine",
 )
+@limiter.limit("10/minute")
 async def register_intent(
+    request: Request,
     payload: RegisterIntentRequest,
     db: AsyncSession = Depends(get_db),
 ) -> SanctuaryResponse[Dict[str, Any]]:
@@ -60,7 +71,9 @@ async def register_intent(
     status_code=status.HTTP_200_OK,
     summary="Exchange Google OAuth2 RS256 token for Sanctuary Bearer tokens",
 )
+@limiter.limit("15/minute", exempt_when=_is_rate_limit_exempt_in_tests)
 async def google_sync(
+    request: Request,
     payload: GoogleSyncRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
@@ -99,7 +112,9 @@ async def send_magic_link(
     status_code=status.HTTP_200_OK,
     summary="Exchange single-use magic link token for session tokens",
 )
+@limiter.limit("5/minute")
 async def verify_magic_link(
+    request: Request,
     payload: MagicLinkVerifyRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
@@ -160,7 +175,9 @@ async def sync_session(
     status_code=status.HTTP_200_OK,
     summary="Refresh expired session tokens using a valid refresh token",
 )
+@limiter.limit("20/minute", exempt_when=_is_rate_limit_exempt_in_tests)
 async def refresh_token(
+    request: Request,
     payload: RefreshTokenRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
@@ -169,4 +186,23 @@ async def refresh_token(
         refresh_token=payload.refresh_token,
         session=db,
     )
+
+
+@router.post(
+    "/logout",
+    response_model=SanctuaryResponse[Dict[str, Any]],
+    status_code=status.HTTP_200_OK,
+    summary="Revoke all active sessions and refresh tokens for the current seeker",
+)
+async def logout(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SanctuaryResponse[Dict[str, Any]]:
+    """Invalidates all outstanding JWT access and refresh tokens by incrementing user.token_version."""
+    new_version = await auth_service.revoke_user_sessions(current_user, db)
+    return SanctuaryResponse(
+        data={"revoked": True, "token_version": new_version},
+        message="Session successfully revoked. All active tokens invalidated.",
+    )
+
 

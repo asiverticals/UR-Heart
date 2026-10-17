@@ -27,6 +27,7 @@ class ProfileSetupState {
   final bool isKycVerified;
   final String? kycStatus;
   final String? kycStatusMessage;
+  final bool isEditMode;
 
   const ProfileSetupState({
     this.photoUrls = const [null, null, null, null, null],
@@ -48,6 +49,7 @@ class ProfileSetupState {
     this.isKycVerified = false,
     this.kycStatus,
     this.kycStatusMessage,
+    this.isEditMode = false,
   });
 
   ProfileSetupState copyWith({
@@ -70,6 +72,7 @@ class ProfileSetupState {
     bool? isKycVerified,
     Object? kycStatus = _unset,
     Object? kycStatusMessage = _unset,
+    bool? isEditMode,
   }) {
     return ProfileSetupState(
       photoUrls: photoUrls ?? this.photoUrls,
@@ -91,6 +94,7 @@ class ProfileSetupState {
       isKycVerified: isKycVerified ?? this.isKycVerified,
       kycStatus: identical(kycStatus, _unset) ? this.kycStatus : kycStatus as String?,
       kycStatusMessage: identical(kycStatusMessage, _unset) ? this.kycStatusMessage : kycStatusMessage as String?,
+      isEditMode: isEditMode ?? this.isEditMode,
     );
   }
 }
@@ -142,6 +146,51 @@ class ProfileSetupController extends StateNotifier<ProfileSetupState> {
 
   void setContactBridgeType(String type) {
     state = state.copyWith(contactBridgeType: type, errorMessage: null);
+  }
+
+  /// Prepopulates state from existing seeker persona and sets edit mode.
+  void initializeForEdit({Map<String, dynamic>? profileData}) {
+    if (profileData != null) {
+      final rawPhotos = profileData['photos'];
+      final List<String?> photos = List<String?>.filled(5, null);
+      if (rawPhotos is List) {
+        for (var i = 0; i < rawPhotos.length && i < 5; i++) {
+          photos[i] = rawPhotos[i]?.toString();
+        }
+      }
+
+      state = state.copyWith(
+        fullName: profileData['full_name']?.toString() ?? state.fullName,
+        bio: profileData['bio']?.toString() ?? state.bio,
+        profession: profileData['profession']?.toString() ?? state.profession,
+        education: profileData['education']?.toString() ?? state.education,
+        gender: profileData['gender']?.toString() ?? state.gender,
+        interestedIn: profileData['interested_in']?.toString() ?? state.interestedIn,
+        contactBridgeType: profileData['contact_bridge_type']?.toString() ?? state.contactBridgeType,
+        contactBridgeHandle: profileData['contact_bridge_handle']?.toString() ?? state.contactBridgeHandle,
+        avatarUrl: profileData['avatar_url']?.toString() ?? state.avatarUrl,
+        photoUrls: (rawPhotos is List && rawPhotos.isNotEmpty) ? photos : state.photoUrls,
+        voiceSparkUrl: profileData['voice_spark_url']?.toString() ?? state.voiceSparkUrl,
+        voiceSparkDuration: (profileData['voice_spark_duration'] as num?)?.toDouble() ?? state.voiceSparkDuration,
+        isEditMode: true,
+        errorMessage: null,
+      );
+    } else {
+      state = state.copyWith(isEditMode: true, errorMessage: null);
+    }
+  }
+
+  void setEditMode(bool isEdit) {
+    state = state.copyWith(isEditMode: isEdit, errorMessage: null);
+  }
+
+  /// Checks local secure storage and activates edit mode if profile is already completed.
+  Future<bool> checkProfileCompletion() async {
+    final isCompleted = await _storage.readCustomKey('is_profile_completed') == 'true';
+    if (isCompleted) {
+      state = state.copyWith(isEditMode: true);
+    }
+    return isCompleted;
   }
 
   /// Direct-to-R2 zero-bottleneck media upload pipeline for photo slots 1 to 5.
@@ -316,6 +365,8 @@ class ProfileSetupController extends StateNotifier<ProfileSetupState> {
   }
 
   /// Validates profile requirements and submits complete seeker profile.
+  /// If editing an existing profile (or profile is already marked completed in storage),
+  /// calls PUT /api/v1/profile instead of POST /api/v1/profile/create.
   Future<bool> submitProfile() async {
     final name = state.fullName.trim();
     if (name.length < 2) {
@@ -329,8 +380,10 @@ class ProfileSetupController extends StateNotifier<ProfileSetupState> {
       return false;
     }
 
+    final isEditing = state.isEditMode;
+
     final handle = state.contactBridgeHandle.trim();
-    if (handle.length < 3) {
+    if (!isEditing && handle.length < 3) {
       state = state.copyWith(errorMessage: 'Please provide a valid contact bridge handle (minimum 3 characters).');
       return false;
     }
@@ -338,26 +391,40 @@ class ProfileSetupController extends StateNotifier<ProfileSetupState> {
     state = state.copyWith(isSubmitting: true, errorMessage: null);
 
     try {
-      final storedDob = await _storage.readCustomKey('user_dob');
-      final payload = {
-        'full_name': name,
-        if (storedDob != null && storedDob.isNotEmpty) 'dob': storedDob,
-        'gender': state.gender,
-        'interested_in': state.interestedIn,
-        'contact_bridge_type': state.contactBridgeType,
-        'contact_bridge_raw': handle,
-        'contact_bridge_handle': handle,
-        'bio': state.bio.trim(),
-        'profession': state.profession.trim(),
-        'education': state.education.trim(),
-        'photos': validPhotos,
-        'avatar_url': state.avatarUrl ?? validPhotos.first,
-        if (state.voiceSparkUrl != null) 'voice_spark_url': state.voiceSparkUrl,
-        if (state.voiceSparkDuration > 0) 'voice_spark_duration': state.voiceSparkDuration,
-      };
+      if (isEditing) {
+        final updatePayload = <String, dynamic>{
+          'full_name': name,
+          'bio': state.bio.trim(),
+          'profession': state.profession.trim(),
+          'education': state.education.trim(),
+          'photos': validPhotos,
+          'avatar_url': state.avatarUrl ?? validPhotos.first,
+          'interested_in': state.interestedIn,
+        };
 
-      await _client.post('/api/v1/profile/create', body: payload);
-      await _storage.writeCustomKey('is_profile_completed', 'true');
+        await _client.put('/api/v1/profile', body: updatePayload);
+      } else {
+        final storedDob = await _storage.readCustomKey('user_dob');
+        final payload = {
+          'full_name': name,
+          if (storedDob != null && storedDob.isNotEmpty) 'dob': storedDob,
+          'gender': state.gender,
+          'interested_in': state.interestedIn,
+          'contact_bridge_type': state.contactBridgeType,
+          'contact_bridge_raw': handle,
+          'contact_bridge_handle': handle,
+          'bio': state.bio.trim(),
+          'profession': state.profession.trim(),
+          'education': state.education.trim(),
+          'photos': validPhotos,
+          'avatar_url': state.avatarUrl ?? validPhotos.first,
+          if (state.voiceSparkUrl != null) 'voice_spark_url': state.voiceSparkUrl,
+          if (state.voiceSparkDuration > 0) 'voice_spark_duration': state.voiceSparkDuration,
+        };
+
+        await _client.post('/api/v1/profile/create', body: payload);
+        await _storage.writeCustomKey('is_profile_completed', 'true');
+      }
 
       state = state.copyWith(isSubmitting: false);
       return true;
