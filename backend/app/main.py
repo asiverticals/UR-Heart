@@ -58,10 +58,33 @@ async def starlette_http_exception_handler(request: Request, exc: StarletteHTTPE
 
 logger = logging.getLogger("urheart.main")
 
+class UvicornAccessNoiseFilter(logging.Filter):
+    """
+    Suppresses noisy automated scanner probes (404s for wp-*, .env, etc.)
+    and repetitive UptimeRobot keep-alive health pings from flooding Render logs.
+    """
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        # Suppress repetitive UptimeRobot HEAD / 200 keep-alive pings
+        if '"HEAD / HTTP/' in msg and ' 200 ' in msg:
+            return False
+        # Suppress repetitive scanner 404 probe noise
+        if any(probe in msg for probe in (
+            "/wp-", "/wordpress", "/blog", "/cms", "/site", "/news", "/press",
+            "/.env", "/.git", "/xmlrpc", "/favicon.ico", "rest_route="
+        )) and (' 404 ' in msg or ' 204 ' in msg):
+            return False
+        return True
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan context manager validating production invariants on boot."""
     validate_production_secrets()
+
+    # Clean up uvicorn.access logger so Render logs stay noise-free
+    access_logger = logging.getLogger("uvicorn.access")
+    access_logger.addFilter(UvicornAccessNoiseFilter())
+
     if settings.SENTRY_DSN:
         try:
             import sentry_sdk
@@ -91,7 +114,27 @@ app.add_exception_handler(SanctuaryException, sanctuary_exception_handler)
 app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
 app.add_exception_handler(StarletteHTTPException, starlette_http_exception_handler)
 
+# Known malicious scanner probe path prefixes and exact paths
+SCANNER_PROBE_PREFIXES = (
+    "/wp-", "/wordpress", "/xmlrpc.php", "/.env", "/.git", "/.aws",
+    "/phpmyadmin", "/pma", "/eval-stdin", "/actuator", "/vendor",
+    "/blog/", "/wp/", "/site/", "/news/", "/cms/", "/press/",
+)
 
+# Automated Scanner Probe Shield Middleware
+@app.middleware("http")
+async def scanner_probe_shield_middleware(request: Request, call_next):
+    raw_path = request.url.path.lower()
+    
+    # Reject known CMS and exploit probe paths immediately with clean 404 and long cache
+    if any(raw_path.startswith(prefix) for prefix in SCANNER_PROBE_PREFIXES) or raw_path.endswith((".php", ".asp", ".aspx")):
+        return Response(
+            status_code=404,
+            content=b"Not Found",
+            headers={"Cache-Control": "public, max-age=86400", "X-Sanctuary-Shield": "blocked"},
+        )
+        
+    return await call_next(request)
 
 # CORS Policy
 cors_origins = [
@@ -125,6 +168,14 @@ async def add_security_headers(request: Request, call_next):
 @app.api_route("/", methods=["GET", "HEAD"], status_code=200)
 @limiter.exempt
 async def root_sentinel(request: Request) -> Response:
+    # If scanner probes WordPress REST route (e.g. /?rest_route=/), reject with 404
+    if "rest_route" in request.query_params:
+        return Response(
+            status_code=404,
+            content=b"Not Found",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
     headers = {
         "X-Sanctuary-Alive": "true",
         "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -135,6 +186,44 @@ async def root_sentinel(request: Request) -> Response:
         status_code=200,
         content={"sanctuary": "active", "message": "UR-Heart Sanctuary Online"},
         headers=headers,
+    )
+
+# Static Well-Known Web Endpoints (/robots.txt, /sitemap.xml, /favicon.ico)
+@app.get("/robots.txt", status_code=200)
+@limiter.exempt
+async def robots_txt() -> Response:
+    content = "User-agent: *\nDisallow: /admin/\nDisallow: /api/\nAllow: /\nSitemap: https://urheart.app/sitemap.xml\n"
+    return Response(
+        content=content,
+        media_type="text/plain",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+@app.get("/sitemap.xml", status_code=200)
+@limiter.exempt
+async def sitemap_xml() -> Response:
+    content = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://urheart.app/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
+  <url><loc>https://urheart.app/store</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://urheart.app/emergency-takedown</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://urheart.app/grievance</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://urheart.app/refund</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://urheart.app/delete-account</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://urheart.app/contact</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+</urlset>"""
+    return Response(
+        content=content,
+        media_type="application/xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+@app.get("/favicon.ico", status_code=204)
+@limiter.exempt
+async def favicon_ico() -> Response:
+    return Response(
+        status_code=204,
+        headers={"Cache-Control": "public, max-age=604800"},
     )
 
 # Mount Health router directly at root (/health) and under /api/v1
