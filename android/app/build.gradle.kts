@@ -1,3 +1,6 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -31,13 +34,26 @@ android {
     }
 
     signingConfigs {
-        val keystoreFile = project.findProperty("MYAPP_RELEASE_STORE_FILE") as String?
-        if (keystoreFile != null && file(keystoreFile).exists()) {
+        val keyPropertiesFile = rootProject.file("key.properties").takeIf { it.exists() }
+            ?: file("key.properties").takeIf { it.exists() }
+        val keyProperties = Properties()
+        if (keyPropertiesFile != null) {
+            FileInputStream(keyPropertiesFile).use { stream ->
+                keyProperties.load(stream)
+            }
+        }
+
+        val keystorePath = (project.findProperty("MYAPP_RELEASE_STORE_FILE") as String?)
+            ?: keyProperties.getProperty("storeFile")
+        if (keystorePath != null && file(keystorePath).exists()) {
             create("release") {
-                storeFile = file(keystoreFile)
-                storePassword = project.findProperty("MYAPP_RELEASE_STORE_PASSWORD") as String?
-                keyAlias = project.findProperty("MYAPP_RELEASE_KEY_ALIAS") as String?
-                keyPassword = project.findProperty("MYAPP_RELEASE_KEY_PASSWORD") as String?
+                storeFile = file(keystorePath)
+                storePassword = (project.findProperty("MYAPP_RELEASE_STORE_PASSWORD") as String?)
+                    ?: keyProperties.getProperty("storePassword")
+                keyAlias = (project.findProperty("MYAPP_RELEASE_KEY_ALIAS") as String?)
+                    ?: keyProperties.getProperty("keyAlias")
+                keyPassword = (project.findProperty("MYAPP_RELEASE_KEY_PASSWORD") as String?)
+                    ?: keyProperties.getProperty("keyPassword")
             }
         }
     }

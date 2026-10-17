@@ -11,6 +11,7 @@
 -keep class io.flutter.plugins.** { *; }
 -keep class io.flutter.embedding.** { *; }
 -keep class io.flutter.plugins.GeneratedPluginRegistrant { *; }
+-dontwarn com.google.android.play.core.**
 
 # UR-Heart Application Entrypoint
 -keep class com.urheart.app.MainActivity { *; }
